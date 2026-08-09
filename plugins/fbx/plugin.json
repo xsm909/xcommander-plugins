@@ -1,0 +1,37 @@
+{
+  "id": "org.xcommander.fbx",
+  "name": "FBX",
+  "version": "0.3.0",
+  "description": "Shows an FBX: the model, shaded and turnable, playing its animation; and what the file holds — meshes, skeleton, clips and how long they run.",
+  "category": "Viewers",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "view",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "viewers": [
+    {
+      "id": "fbx.model",
+      "title": "Model",
+      "extensions": [
+        "fbx"
+      ],
+      "priority": 20
+    },
+    {
+      "id": "fbx.contents",
+      "title": "FBX contents",
+      "extensions": [
+        "fbx"
+      ],
+      "priority": 10
+    }
+  ]
+}
