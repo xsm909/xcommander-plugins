@@ -18,6 +18,24 @@
     "updated": "2026-08-09T21:30:10+02:00"
   },
   {
+    "folder": "fbx",
+    "id": "org.xcommander.fbx",
+    "name": "FBX",
+    "version": "0.3.0",
+    "description": "Shows an FBX: the model, shaded and turnable, playing its animation; and what the file holds \u2014 meshes, skeleton, clips and how long they run.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Viewers",
+    "icon": "view",
+    "updated": "2026-08-09T23:15:34+02:00"
+  },
+  {
     "folder": "ftp",
     "id": "org.xcommander.ftp",
     "name": "FTP",
@@ -101,7 +119,7 @@
     "pythonMin": "3.12",
     "category": "Transports",
     "icon": "cloud",
-    "updated": "2026-08-09T21:42:55+02:00"
+    "updated": "2026-08-09T22:05:25+02:00"
   },
   {
     "folder": "zip-viewer",
