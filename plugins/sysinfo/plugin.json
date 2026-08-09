@@ -3,6 +3,7 @@
   "name": "System information",
   "version": "1.0.0",
   "description": "What this machine is: operating system, processor, memory, graphics and disks.",
+  "category": "Tools",
   "author": "xcommander",
   "homepage": "https://github.com/xsm909/xcommander-plugins",
   "apiVersion": 1,
@@ -10,7 +11,11 @@
   "entry": "main.py",
   "pythonMin": "3.12",
   "icon": "memory",
-  "platforms": ["windows", "macos", "linux"],
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
   "commands": [
     {
       "id": "sysinfo.show",

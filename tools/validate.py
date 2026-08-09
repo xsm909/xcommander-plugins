@@ -15,6 +15,7 @@ is not valid JSON, an entry script named in the manifest but missing.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -24,7 +25,43 @@ INDEX = ROOT / "index.json"
 
 API_VERSION = 1
 RUNTIMES = {"python", "declarative"}
-REQUIRED = ("id", "name", "version", "apiVersion", "runtime")
+
+# `category` is required. The manager groups by it the way an app store does,
+# and a plugin without one would have to be filed under "everything else",
+# which is where things go to stop being found.
+REQUIRED = ("id", "name", "version", "apiVersion", "runtime", "category")
+
+#: Not enforced — a new kind of extension should not need this file changed
+#: first. Listed so that plugins doing the same thing end up filed together
+#: instead of under six spellings of the same word.
+SUGGESTED_CATEGORIES = (
+    "Tools",
+    "Viewers",
+    "Transports",
+    "Archives",
+    "Appearance",
+    "Development",
+)
+
+
+def last_commit(folder: Path) -> str | None:
+    """When this plugin last changed, ISO-8601, from git.
+
+    The app cannot work this out for itself: it installs from a branch tarball,
+    and GitHub stamps every file in one with the same date. Freshness has to be
+    carried in the index or it does not exist.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%cI", "--", str(folder)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() or None
 
 
 def check(folder: Path, seen: dict[str, str]) -> tuple[dict | None, list[str]]:
@@ -46,6 +83,15 @@ def check(folder: Path, seen: dict[str, str]) -> tuple[dict | None, list[str]]:
         problems.append(f"id {plugin_id!r} is already used by {seen[plugin_id]}")
     elif plugin_id:
         seen[plugin_id] = folder.name
+
+    category = manifest.get("category")
+    if category and category not in SUGGESTED_CATEGORIES:
+        # A warning, not a failure: the list is guidance, not a schema.
+        print(
+            f"{folder.name}: category {category!r} is not one of "
+            f"{list(SUGGESTED_CATEGORIES)}",
+            file=sys.stderr,
+        )
 
     if manifest.get("apiVersion") != API_VERSION:
         problems.append(
@@ -101,6 +147,9 @@ def main() -> int:
                 "apiVersion": manifest["apiVersion"],
                 "platforms": manifest.get("platforms", []),
                 "pythonMin": manifest.get("pythonMin"),
+                "category": manifest["category"],
+                "icon": manifest.get("icon"),
+                "updated": last_commit(folder),
             }
         )
 
