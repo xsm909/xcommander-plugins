@@ -1,0 +1,95 @@
+{
+  "id": "org.xcommander.ftp",
+  "name": "FTP",
+  "version": "0.2.0",
+  "description": "Browse and transfer over FTP. Set up connections from Drives and connections.",
+  "category": "Transports",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "cloud",
+  "platforms": ["windows", "macos", "linux"],
+  "schemes": ["ftp"],
+  "connections": [
+    {
+      "id": "ftp.session",
+      "title": "FTP",
+      "scheme": "ftp",
+      "storeFile": "ftp_connect.ini",
+      "fields": [
+        {
+          "key": "host",
+          "label": "Host name",
+          "type": "text",
+          "required": true,
+          "hint": "ftp.example.com, host:port, or a whole ftp:// URL"
+        },
+        {
+          "key": "port",
+          "label": "Port",
+          "type": "integer",
+          "hint": "21"
+        },
+        {
+          "key": "anonymous",
+          "label": "Anonymous login",
+          "type": "boolean",
+          "default": false,
+          "note": "Signs in as anonymous with an e-mail address as password."
+        },
+        {
+          "key": "user",
+          "label": "User name",
+          "type": "text",
+          "hiddenWhen": "anonymous"
+        },
+        {
+          "key": "password",
+          "label": "Password",
+          "type": "password",
+          "hiddenWhen": "anonymous"
+        },
+        {
+          "key": "remoteDir",
+          "label": "Remote directory",
+          "type": "remotePath",
+          "hint": "/"
+        },
+        {
+          "key": "tls",
+          "label": "Use SSL/TLS",
+          "type": "boolean",
+          "default": false,
+          "note": "Explicit FTPS. The server must support AUTH TLS."
+        },
+        {
+          "key": "passive",
+          "label": "Passive mode for transfers",
+          "type": "boolean",
+          "default": true,
+          "note": "Leave on unless the server needs active mode."
+        }
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "id": "ftp.disconnect",
+      "title": "Disconnect all FTP sessions",
+      "description": "Closes every open control connection."
+    }
+  ],
+  "settings": [
+    {
+      "key": "idleTimeout",
+      "label": "Reopen a connection idle for longer than",
+      "type": "integer",
+      "default": 120,
+      "hint": "120",
+      "note": "Seconds. Lower it for a server that hangs up quickly."
+    }
+  ]
+}

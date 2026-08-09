@@ -1,0 +1,69 @@
+{
+  "id": "org.xcommander.smb",
+  "name": "SMB",
+  "version": "0.1.0",
+  "description": "Browse and transfer over SMB2. Set up connections from Drives and connections.",
+  "category": "Transports",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "cloud",
+  "platforms": ["windows", "macos", "linux"],
+  "schemes": ["smb"],
+  "connections": [
+    {
+      "id": "smb.session",
+      "title": "SMB",
+      "scheme": "smb",
+      "storeFile": "smb_connect.ini",
+      "fields": [
+        {
+          "key": "host",
+          "label": "Server",
+          "type": "text",
+          "required": true,
+          "hint": "192.168.1.10, a host name, or a whole smb:// URL"
+        },
+        {
+          "key": "port",
+          "label": "Port",
+          "type": "integer",
+          "hint": "445"
+        },
+        {
+          "key": "user",
+          "label": "User name",
+          "type": "text"
+        },
+        {
+          "key": "password",
+          "label": "Password",
+          "type": "password"
+        },
+        {
+          "key": "domain",
+          "label": "Domain",
+          "type": "text",
+          "note": "Leave empty for a local account or a workgroup."
+        },
+        {
+          "key": "remoteDir",
+          "label": "Share",
+          "type": "remotePath",
+          "required": true,
+          "hint": "documents, or documents/reports"
+        }
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "id": "smb.disconnect",
+      "title": "Disconnect all SMB sessions",
+      "description": "Closes every open connection."
+    }
+  ]
+}

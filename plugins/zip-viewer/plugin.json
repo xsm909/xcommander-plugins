@@ -1,0 +1,31 @@
+{
+  "id": "org.xcommander.zip-viewer",
+  "name": "Archives",
+  "version": "0.2.0",
+  "description": "Opens ZIP archives as folders, and lists their contents with F3. An example of work that needs real code, not a declarative render spec.",
+  "category": "Archives",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "archive",
+  "platforms": ["windows", "macos", "linux"],
+  "schemes": ["zip"],
+  "containers": [
+    {
+      "scheme": "zip",
+      "title": "ZIP archive",
+      "extensions": ["zip", "jar", "whl", "apk", "epub"]
+    }
+  ],
+  "viewers": [
+    {
+      "id": "zip.contents",
+      "title": "Archive contents",
+      "priority": 30,
+      "extensions": ["zip", "jar", "whl", "apk", "docx", "xlsx", "pptx", "epub"]
+    }
+  ]
+}

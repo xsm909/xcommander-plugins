@@ -1,5 +1,23 @@
 [
   {
+    "folder": "ftp",
+    "id": "org.xcommander.ftp",
+    "name": "FTP",
+    "version": "0.2.0",
+    "description": "Browse and transfer over FTP. Set up connections from Drives and connections.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Transports",
+    "icon": "cloud",
+    "updated": null
+  },
+  {
     "folder": "logs",
     "id": "org.xcommander.logs",
     "name": "Log files",
@@ -12,6 +30,24 @@
     "category": "Viewers",
     "icon": null,
     "updated": "2026-08-09T10:21:10+02:00"
+  },
+  {
+    "folder": "smb",
+    "id": "org.xcommander.smb",
+    "name": "SMB",
+    "version": "0.1.0",
+    "description": "Browse and transfer over SMB2. Set up connections from Drives and connections.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Transports",
+    "icon": "cloud",
+    "updated": null
   },
   {
     "folder": "sysinfo",
@@ -30,5 +66,23 @@
     "category": "Tools",
     "icon": "memory",
     "updated": "2026-08-09T11:55:29+02:00"
+  },
+  {
+    "folder": "zip-viewer",
+    "id": "org.xcommander.zip-viewer",
+    "name": "Archives",
+    "version": "0.2.0",
+    "description": "Opens ZIP archives as folders, and lists their contents with F3. An example of work that needs real code, not a declarative render spec.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Archives",
+    "icon": "archive",
+    "updated": null
   }
 ]
