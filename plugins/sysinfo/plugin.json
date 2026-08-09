@@ -1,0 +1,23 @@
+{
+  "id": "org.xcommander.sysinfo",
+  "name": "System information",
+  "version": "1.0.0",
+  "description": "What this machine is: operating system, processor, memory, graphics and disks.",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "memory",
+  "platforms": ["windows", "macos", "linux"],
+  "commands": [
+    {
+      "id": "sysinfo.show",
+      "title": "System information",
+      "description": "Shows what this machine is made of.",
+      "icon": "memory",
+      "inTitleBar": true
+    }
+  ]
+}
