@@ -1,0 +1,107 @@
+{
+  "id": "org.xcommander.web",
+  "name": "Web resources",
+  "version": "1.0.0",
+  "description": "Opens a web page as a folder of the things it is made of — images, scripts, stylesheets, and the pages it links to. Read and copy; nothing is ever written back.",
+  "category": "Transports",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "cloud",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "schemes": [
+    "https",
+    "http"
+  ],
+  "connections": [
+    {
+      "id": "web.https",
+      "title": "Web site",
+      "scheme": "https",
+      "storeFile": "web_sites.ini",
+      "fields": [
+        {
+          "key": "host",
+          "label": "Address",
+          "type": "text",
+          "required": true,
+          "hint": "example.com, or a whole https:// URL with a path"
+        }
+      ]
+    },
+    {
+      "id": "web.http",
+      "title": "Web site (no TLS)",
+      "scheme": "http",
+      "storeFile": "web_sites.ini",
+      "fields": [
+        {
+          "key": "host",
+          "label": "Address",
+          "type": "text",
+          "required": true,
+          "hint": "For a server that has no https. Everything travels in the clear."
+        }
+      ]
+    }
+  ],
+  "settings": [
+    {
+      "key": "links",
+      "label": "Show the pages it links to",
+      "type": "boolean",
+      "default": true,
+      "note": "Links become folders you can walk into. Off leaves only the things the page is built from."
+    },
+    {
+      "key": "offsite",
+      "label": "Include resources from other hosts",
+      "type": "boolean",
+      "default": true,
+      "note": "A page usually pulls fonts, scripts and images from elsewhere. Off shows only what this host serves."
+    },
+    {
+      "key": "outbound",
+      "label": "Follow links to other hosts",
+      "type": "boolean",
+      "default": false,
+      "note": "Off keeps a walk inside the site you opened. Links off it are still listed, as files."
+    },
+    {
+      "key": "sizes",
+      "label": "Ask each resource how big it is",
+      "type": "boolean",
+      "default": false,
+      "note": "One extra HEAD request per resource, several at a time. Off leaves sizes blank until a file is opened or copied."
+    },
+    {
+      "key": "robots",
+      "label": "Respect robots.txt",
+      "type": "boolean",
+      "default": true,
+      "note": "What the site asks automated readers not to fetch. Turn it off only on a site you run."
+    },
+    {
+      "key": "timeout",
+      "label": "Give a request at most",
+      "type": "integer",
+      "default": 20,
+      "hint": "20",
+      "note": "Seconds."
+    },
+    {
+      "key": "userAgent",
+      "label": "Identify as",
+      "type": "text",
+      "default": "xcommander-web/1.0 (+https://github.com/xsm909/xcommander)",
+      "note": "Sent as User-Agent. Some sites answer differently, or not at all, without one they recognise."
+    }
+  ]
+}

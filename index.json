@@ -15,7 +15,7 @@
     "pythonMin": "3.12",
     "category": "Tools",
     "icon": "chart",
-    "updated": "2026-08-09T21:11:56+02:00"
+    "updated": "2026-08-09T21:30:10+02:00"
   },
   {
     "folder": "ftp",
@@ -84,6 +84,24 @@
     "category": "Tools",
     "icon": "memory",
     "updated": "2026-08-09T16:00:14+02:00"
+  },
+  {
+    "folder": "web",
+    "id": "org.xcommander.web",
+    "name": "Web resources",
+    "version": "1.0.0",
+    "description": "Opens a web page as a folder of the things it is made of \u2014 images, scripts, stylesheets, and the pages it links to. Read and copy; nothing is ever written back.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Transports",
+    "icon": "cloud",
+    "updated": null
   },
   {
     "folder": "zip-viewer",
