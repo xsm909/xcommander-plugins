@@ -304,14 +304,14 @@ class WebFs(FileSystem):
     # -- what the host asks for -------------------------------------------
 
     def roots(self) -> List[Root]:
-        return [
-            Root(
-                "%s://example.com/" % self.scheme,
-                "Web" if self.scheme == "https" else "Web (no TLS)",
-                "Type a site address in Go to",
-                icon="cloud",
-            )
-        ]
+        """None. A scheme is not a place.
+
+        The drives list is somewhere to *go*, and there is no such place as
+        "the web" — a row that lands on a stand-in address is a row that does
+        nothing anyone wanted. The way in is a saved connection, or a URL typed
+        into Go to; both are already offered where connections are set up.
+        """
+        return []
 
     def default_location(self) -> str:
         # Somewhere that exists and is tiny, rather than an error or a guess at
@@ -359,6 +359,21 @@ class WebFs(FileSystem):
         )
 
     def read(self, url: str, offset: int, length: int) -> bytes:
+        """Bytes of the file, which is not the same as bytes of a range.
+
+        A byte range is answered against whatever representation the server has
+        stored, and that need not be the one it would have sent: ask iana.org
+        for the first 64 bytes of a page and it answers 206, no
+        Content-Encoding, and 64 bytes of a compressed copy it keeps — the
+        range is of *that*, and the total it quotes is that file's length.
+        There is no header that says so.
+
+        So the whole thing is fetched and decoded once, kept while the panel
+        reads through it, and sliced here. One request per file either way, and
+        the bytes are the file's. Ranges are left for the rare resource too big
+        to hold, where a server that stores compressed copies is not the sort
+        of server that is serving it.
+        """
         real = self._resolve(url)
 
         with self._lock:
@@ -366,16 +381,16 @@ class WebFs(FileSystem):
         if whole is not None and whole[0] == real:
             return whole[1][offset : offset + length]
 
-        answer = fetcher.open(real, byte_range=(offset, offset + length - 1))
-        if answer.status == 206:
-            return answer.body[:length]
-
-        # The server ignored the range and sent the lot. Keeping it is the
-        # difference between one request and one per chunk.
-        if len(answer.body) <= MAX_WHOLE:
+        answer = fetcher.open(real)
+        if len(answer.body) < MAX_WHOLE:
             with self._lock:
                 self._whole = (real, answer.body)
-        return answer.body[offset : offset + length]
+            return answer.body[offset : offset + length]
+
+        ranged = fetcher.open(real, byte_range=(offset, offset + length - 1))
+        if ranged.status == 206:
+            return ranged.body[:length]
+        return ranged.body[offset : offset + length]
 
     # -- internals --------------------------------------------------------
 

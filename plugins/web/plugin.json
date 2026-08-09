@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.web",
   "name": "Web resources",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Opens a web page as a folder of the things it is made of — images, scripts, stylesheets, and the pages it links to. Read and copy; nothing is ever written back.",
   "category": "Transports",
   "author": "xcommander",
