@@ -15,7 +15,7 @@
     "pythonMin": "3.12",
     "category": "Transports",
     "icon": "cloud",
-    "updated": null
+    "updated": "2026-08-09T16:00:14+02:00"
   },
   {
     "folder": "logs",
@@ -47,7 +47,7 @@
     "pythonMin": "3.12",
     "category": "Transports",
     "icon": "cloud",
-    "updated": null
+    "updated": "2026-08-09T16:00:14+02:00"
   },
   {
     "folder": "sysinfo",
@@ -65,7 +65,7 @@
     "pythonMin": "3.12",
     "category": "Tools",
     "icon": "memory",
-    "updated": "2026-08-09T11:55:29+02:00"
+    "updated": "2026-08-09T16:00:14+02:00"
   },
   {
     "folder": "zip-viewer",
@@ -83,6 +83,6 @@
     "pythonMin": "3.12",
     "category": "Archives",
     "icon": "archive",
-    "updated": null
+    "updated": "2026-08-09T16:00:14+02:00"
   }
 ]
