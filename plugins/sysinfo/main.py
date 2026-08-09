@@ -21,8 +21,13 @@ from xcommander import Plugin, markdown
 plugin = Plugin("org.xcommander.sysinfo")
 
 #: Nothing here is worth waiting on. A hung `system_profiler` must not hang the
-#: report; it just costs that one row.
-TIMEOUT_SECONDS = 6
+#: report; it just costs that one row. The manifest offers it as a setting,
+#: because how long is too long depends on the machine.
+DEFAULT_TIMEOUT_SECONDS = 6
+
+
+def probe_timeout() -> float:
+    return float(plugin.setting("probeTimeout", DEFAULT_TIMEOUT_SECONDS))
 
 
 def run(command: List[str]) -> Optional[str]:
@@ -32,7 +37,7 @@ def run(command: List[str]) -> Optional[str]:
             command,
             capture_output=True,
             text=True,
-            timeout=TIMEOUT_SECONDS,
+            timeout=probe_timeout(),
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
@@ -47,12 +52,23 @@ def first_line(value: Optional[str]) -> Optional[str]:
     return value.splitlines()[0].strip() if value else None
 
 
+#: Both ways of saying the same number of bytes, and the step each divides by.
+#: A disk is sold in decimal and reported by most systems in binary, which is
+#: where "1 TB" and "931.3 GiB" come from — so which one to show is a setting
+#: rather than a decision this plugin gets to make for everybody.
+UNITS = {
+    "binary": (1024.0, ("B", "KiB", "MiB", "GiB", "TiB", "PiB")),
+    "decimal": (1000.0, ("B", "KB", "MB", "GB", "TB", "PB")),
+}
+
+
 def human_bytes(count: float) -> str:
-    for unit in ("B", "KB", "MB", "GB", "TB", "PB"):
-        if abs(count) < 1024 or unit == "PB":
+    step, units = UNITS.get(str(plugin.setting("units", "binary")), UNITS["binary"])
+    for unit in units:
+        if abs(count) < step or unit == units[-1]:
             return f"{count:.0f} {unit}" if unit == "B" else f"{count:.1f} {unit}"
-        count /= 1024
-    return f"{count:.1f} PB"
+        count /= step
+    return f"{count:.1f} {units[-1]}"
 
 
 # --- the probes -------------------------------------------------------------
@@ -223,7 +239,9 @@ def show(args) -> dict:
     report.add("Logical cores", str(os.cpu_count() or ""))
     report.add("Memory", total_memory())
 
-    cards = graphics()
+    # The graphics probe shells out to the slowest tool on every platform, and
+    # a machine whose card nobody cares about pays for it on every report.
+    cards = graphics() if plugin.setting("graphics", True) else []
     if cards:
         report.section("Graphics")
         for index, card in enumerate(cards):

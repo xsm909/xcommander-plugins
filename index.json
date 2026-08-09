@@ -11,13 +11,13 @@
     "pythonMin": null,
     "category": "Viewers",
     "icon": null,
-    "updated": "2026-08-09T08:38:19+02:00"
+    "updated": "2026-08-09T10:21:10+02:00"
   },
   {
     "folder": "sysinfo",
     "id": "org.xcommander.sysinfo",
     "name": "System information",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "What this machine is: operating system, processor, memory, graphics and disks.",
     "runtime": "python",
     "apiVersion": 1,
@@ -29,6 +29,6 @@
     "pythonMin": "3.12",
     "category": "Tools",
     "icon": "memory",
-    "updated": "2026-08-09T10:10:02+02:00"
+    "updated": "2026-08-09T10:21:10+02:00"
   }
 ]

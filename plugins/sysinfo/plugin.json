@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.sysinfo",
   "name": "System information",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "What this machine is: operating system, processor, memory, graphics and disks.",
   "category": "Tools",
   "author": "xcommander",
@@ -23,6 +23,34 @@
       "description": "Shows what this machine is made of.",
       "icon": "memory",
       "inTitleBar": true
+    }
+  ],
+  "settings": [
+    {
+      "key": "units",
+      "label": "Sizes",
+      "type": "choice",
+      "default": "binary",
+      "options": [
+        { "value": "binary", "label": "Binary — KiB, MiB, GiB" },
+        { "value": "decimal", "label": "Decimal — KB, MB, GB" }
+      ],
+      "note": "A disk sold as 1 TB is 931.3 GiB. Both are the same number of bytes."
+    },
+    {
+      "key": "graphics",
+      "label": "Ask the machine about its graphics cards",
+      "type": "boolean",
+      "default": true,
+      "note": "The slowest probe there is. Turn it off if the report is slow to appear."
+    },
+    {
+      "key": "probeTimeout",
+      "label": "Give each probe at most",
+      "type": "integer",
+      "default": 6,
+      "hint": "6",
+      "note": "Seconds. A probe that runs out of time leaves its row out."
     }
   ]
 }
