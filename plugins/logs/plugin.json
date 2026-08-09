@@ -1,0 +1,23 @@
+{
+  "id": "org.xcommander.logs",
+  "name": "Log files",
+  "version": "1.0.0",
+  "description": "Opens .log, .out and .err files as plain text, however large they are.",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "apiVersion": 1,
+  "runtime": "declarative",
+  "viewers": [
+    {
+      "id": "logs.text",
+      "title": "Log",
+      "extensions": ["log", "out", "err"],
+      "priority": 20,
+      "render": {
+        "kind": "text",
+        "encoding": "utf-8",
+        "maxBytes": 8388608
+      }
+    }
+  ]
+}

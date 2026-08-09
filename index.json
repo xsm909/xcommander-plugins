@@ -1,0 +1,13 @@
+[
+  {
+    "folder": "logs",
+    "id": "org.xcommander.logs",
+    "name": "Log files",
+    "version": "1.0.0",
+    "description": "Opens .log, .out and .err files as plain text, however large they are.",
+    "runtime": "declarative",
+    "apiVersion": 1,
+    "platforms": [],
+    "pythonMin": null
+  }
+]
