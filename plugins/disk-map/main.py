@@ -665,6 +665,18 @@ def _node_at(session: Session, row: Optional[int]) -> Optional[Node]:
         return session.shown[row]
 
 
+def _walk_to(node: Node) -> Optional[List[dict]]:
+    """What to ask of the host when the map moves to a folder.
+
+    Every way of moving answers this the same way — a wedge, the middle of the
+    ring, Up, a level of the address bar. They are one act with four gestures,
+    and having only the wedge walk the panel along was a gap, not a design.
+    """
+    if not plugin.setting("follow", True):
+        return None
+    return [navigate(node.url)]
+
+
 def _activate(session: Session, row: Optional[int]) -> Optional[dict]:
     # The middle of the ring is the way back out.
     if row is not None and row < 0:
@@ -679,11 +691,7 @@ def _activate(session: Session, row: Optional[int]) -> Optional[dict]:
 
     with session.lock:
         session.focus = node
-
-    actions = []
-    if plugin.setting("follow", True):
-        actions.append(navigate(node.url))
-    return _answer(session, actions or None)
+    return _answer(session, _walk_to(node))
 
 
 def _step(session: Session, index: Optional[int]) -> Optional[dict]:
@@ -703,23 +711,29 @@ def _step(session: Session, index: Optional[int]) -> Optional[dict]:
         node = _find(session.scan.root, url)
         if node is not None:
             session.focus = node
-            return _answer(session)
+            return _answer(session, _walk_to(node))
 
         surface = session.surface
 
     # Above the folder the map was opened on. Pressing a parent in a path bar
     # has always meant "show me that", so the map goes there — and the cache
     # decides whether that is instant or a walk.
-    return _answer(_point(session.id, surface, url))
+    moved = _point(session.id, surface, url)
+    return _answer(moved, _walk_to(moved.focus))
 
 
 def _up(session: Session) -> dict:
     with session.lock:
         parent = session.focus.parent
         if parent is None:
-            return respond(actions=[notice("This is the top of the map.")])
+            # Not the top of the disk, only of what was measured — the address
+            # bar goes further, and saying so is more use than a flat refusal.
+            return respond(
+                actions=[notice("The map starts here. The path above it is in "
+                                "the address bar.")]
+            )
         session.focus = parent
-    return _answer(session)
+    return _answer(session, _walk_to(parent))
 
 
 def _mark(session: Session, row: Optional[int]) -> Optional[dict]:
