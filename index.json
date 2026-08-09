@@ -1,5 +1,23 @@
 [
   {
+    "folder": "disk-map",
+    "id": "org.xcommander.diskmap",
+    "name": "Disk map",
+    "version": "1.0.0",
+    "description": "What is taking up the room: a ring of folders you can walk into, mark, and have the application clear away.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Tools",
+    "icon": "chart",
+    "updated": null
+  },
+  {
     "folder": "ftp",
     "id": "org.xcommander.ftp",
     "name": "FTP",

@@ -1,0 +1,83 @@
+{
+  "id": "org.xcommander.diskmap",
+  "name": "Disk map",
+  "version": "1.0.0",
+  "description": "What is taking up the room: a ring of folders you can walk into, mark, and have the application clear away.",
+  "category": "Tools",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "chart",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "views": [
+    {
+      "id": "diskmap.rings",
+      "title": "Disk map",
+      "description": "A ring of what is taking up the room.",
+      "icon": "chart",
+      "surfaces": [
+        "fullscreen",
+        "panel",
+        "locations",
+        "menu",
+        "titleBar"
+      ],
+      "follows": "none",
+      "keys": true
+    }
+  ],
+  "settings": [
+    {
+      "key": "rings",
+      "label": "Rings",
+      "type": "integer",
+      "default": 3,
+      "hint": "3",
+      "note": "How deep the chart goes. A panel is narrow, so it always draws one ring fewer than this."
+    },
+    {
+      "key": "slices",
+      "label": "Wedges per ring",
+      "type": "integer",
+      "default": 12,
+      "hint": "12",
+      "note": "Everything past this is gathered into one wedge, so a folder of ten thousand files still draws."
+    },
+    {
+      "key": "maxAge",
+      "label": "Measure again after",
+      "type": "integer",
+      "default": 30,
+      "hint": "30",
+      "note": "Minutes. A folder that has been measured is remembered and drawn at once; past this it is walked again on opening. Rescan always reads it afresh."
+    },
+    {
+      "key": "hidden",
+      "label": "Count hidden files",
+      "type": "boolean",
+      "default": true,
+      "note": "They take up room whether or not they are shown in the panel."
+    },
+    {
+      "key": "follow",
+      "label": "Walk the other panel along",
+      "type": "boolean",
+      "default": true,
+      "note": "Opening a folder in the chart also sends the panel beside it there."
+    },
+    {
+      "key": "direct",
+      "label": "Read local folders directly",
+      "type": "boolean",
+      "default": true,
+      "note": "Faster on a big local disk. Turn it off to walk everything through the application instead, which is the only way anything but the local disk is ever read."
+    }
+  ]
+}
