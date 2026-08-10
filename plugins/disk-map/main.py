@@ -156,6 +156,12 @@ def _local_path(url: str) -> Optional[str]:
     # not to the path.
     if len(path) > 2 and path[0] == "/" and path[2] == ":":
         path = path[1:]
+    if len(path) == 2 and path[1] == ":":
+        # A bare `C:` is not the drive: Windows keeps a current directory per
+        # drive and that is what it names, so scanning it read whichever folder
+        # this plugin happened to be started in — its own — and drew that as the
+        # contents of the disk. The separator is what makes it the root.
+        return path + "\\"
     return path
 
 
@@ -471,7 +477,11 @@ def _draw(session: Session):
         # The way back from a slip of the hand. Picking things out one at a
         # time is easy to do by accident and tedious to undo the same way.
         buttons.append(button("unmark", "Clear %d mark(s)" % len(session.marked)))
-    if session.focus.parent is not None:
+    # Up is offered whenever there is anywhere above, and the address bar knows
+    # about more levels than the scan does: opening the map on `C:\Users` makes
+    # that the root of what was measured, and the button used to disappear at
+    # exactly the place a user is most likely to want it.
+    if session.focus.parent is not None or len(_trail_of(session)) > 1:
         buttons.append(button("up", "Up"))
     buttons.append(button("rescan", "Rescan" if not scan.scanning else "Stop"))
 
@@ -540,7 +550,10 @@ def _trail_of(session: Session) -> List[tuple]:
         # A server is the top of its own tree, and is named as one.
         steps.append((parsed.netloc, base + "/" + query))
     elif segments and _DRIVE.match(unquote(segments[0])):
-        steps.append((unquote(segments[0]), base + "/" + segments[0] + query))
+        # With its slash: a drive is a root, and `file:///C:` without one turns
+        # back into a bare `C:`, which names a current directory rather than the
+        # drive. Pressing this step used to show the plugin's own folder.
+        steps.append((unquote(segments[0]), base + "/" + segments[0] + "/" + query))
         first = 1
     else:
         steps.append(("/", base + "/" + query))
@@ -723,17 +736,29 @@ def _step(session: Session, index: Optional[int]) -> Optional[dict]:
 
 
 def _up(session: Session) -> dict:
+    """One level up, whether or not that level has been measured.
+
+    Inside the scan it costs nothing. Above it — which is where the map always
+    is when it was opened on a subfolder — it is the same move as pressing the
+    step before the last in the address bar, so it goes through the same path
+    and the cache decides whether that is instant or a walk. It used to refuse
+    and explain instead, which left the one folder above the map unreachable by
+    the key and by the button both.
+    """
     with session.lock:
         parent = session.focus.parent
-        if parent is None:
-            # Not the top of the disk, only of what was measured — the address
-            # bar goes further, and saying so is more use than a flat refusal.
-            return respond(
-                actions=[notice("The map starts here. The path above it is in "
-                                "the address bar.")]
-            )
-        session.focus = parent
-    return _answer(session, _walk_to(parent))
+        if parent is not None:
+            session.focus = parent
+            return _answer(session, _walk_to(parent))
+
+        trail = _trail_of(session)
+        surface = session.surface
+
+    if len(trail) < 2:
+        return respond(actions=[notice("This is the top of the disk.")])
+
+    moved = _point(session.id, surface, trail[-2][1])
+    return _answer(moved, _walk_to(moved.focus))
 
 
 def _mark(session: Session, row: Optional[int]) -> Optional[dict]:

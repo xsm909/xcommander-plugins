@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.diskmap",
   "name": "Disk map",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "What is taking up the room: a ring of folders you can walk into, mark, and have the application clear away.",
   "category": "Tools",
   "author": "xcommander",
