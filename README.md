@@ -64,4 +64,11 @@ never has to be right for this repository to work.
 
 ## Licence
 
-MIT.
+GNU General Public License v3.0 or later (`GPL-3.0-or-later`) — see [LICENSE](LICENSE).
+
+Everything here is free software: use it, study it, change it, pass it on. The
+one condition is that anything you distribute built on this code stays under the
+same licence, with its source available.
+
+Releases up to and including commit `1cecead` were published under the MIT
+licence; that grant cannot be withdrawn and still applies to those revisions.
