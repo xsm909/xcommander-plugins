@@ -1,8 +1,8 @@
 {
   "id": "org.xcommander.git",
   "name": "Git",
-  "version": "0.8.0",
-  "description": "The repository the panel is standing in: its log and working tree, its branches, what each commit touched, and any commit as a folder.",
+  "version": "0.9.0",
+  "description": "The repository the panel is standing in, on one page: its branches, its log with the shape of the history drawn, what each commit touched and the difference itself.",
   "category": "Tools",
   "author": "xcommander",
   "homepage": "https://github.com/xsm909/xcommander-plugins",
@@ -41,6 +41,13 @@
       "default": 200,
       "hint": "200",
       "note": "A log is walked from the tip, so this is how far back it goes. Large repositories have hundreds of thousands of commits and nobody scrolls to the beginning."
+    },
+    {
+      "key": "sidebar",
+      "label": "Branches, tags and remotes down the side",
+      "type": "boolean",
+      "default": true,
+      "note": "What there is to look at, standing beside the log rather than instead of it. A list you go to a page for is a list you stop glancing at."
     },
     {
       "key": "allBranches",

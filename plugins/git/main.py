@@ -271,7 +271,7 @@ def state_of(root: str) -> Tuple[str, str]:
 
 #: The row that stands for the working tree, at the head of the log. Not a
 #: commit and deliberately shaped like one: it is where the eye goes first, and
-#: it is what Git Extensions puts there. It has no place in the braid — nothing
+#: it is what Fork puts there. It has no place in the braid — nothing
 #: is committed, so there is nothing for a line to come from.
 WORKING = "working"
 
@@ -356,7 +356,11 @@ def menus_of(options: Dict[str, object]) -> List[dict]:
             "items": [
                 {"id": "refresh", "label": "Read it again", "shortcut": "F5"},
                 {},
-                {"id": "refs", "label": "Branches, tags and remotes"},
+                {
+                    "id": "toggle.sidebar",
+                    "label": "Branches, tags and remotes down the side",
+                    "checked": bool(options.get("sidebar", True)),
+                },
                 {"id": "checkout", "label": "Switch to the branch being shown"},
                 {
                     "id": "browse",
@@ -683,22 +687,20 @@ plugin.add_filesystem(GitFileSystem())
 class Where:
     """What one open copy of the view is looking at.
 
-    Two levels now, not four. The log, what the commit under the cursor
-    touched, and the difference of the file under *that* cursor are one page
-    with a divider between them — so walking into a commit is not walking
-    anywhere, and the list you came from is still on screen. Only the list of
-    branches is a place of its own.
+    One page, not four levels. The branches down the side, the log, what the
+    commit under the cursor touched, and the difference of the file under
+    *that* cursor are all on it at once — so nothing here is a place you go to
+    and come back from, and nothing you were reading goes off screen because
+    you looked at something else.
     """
 
-    __slots__ = ("root", "branch", "name", "level", "hash", "short", "subject",
-                 "author", "files", "file", "diff", "refs")
+    __slots__ = ("root", "branch", "name", "hash", "short", "subject",
+                 "author", "files", "file", "diff", "refs", "rows", "sidebar")
 
     def __init__(self, root: str, branch: str, name: str) -> None:
         self.root = root
         self.branch = branch
         self.name = name
-        #: `log` — the page — or `refs`.
-        self.level = "log"
         #: The commit whose files are showing. [WORKING] for the working tree.
         self.hash = ""
         self.short = ""
@@ -709,9 +711,12 @@ class Where:
         #: Which of them the difference below is of.
         self.file = -1
         self.diff = ""
-        #: The branches, tags and remotes as last listed, so a press knows
-        #: which row it was.
+        #: The branches, tags and remotes as last listed.
         self.refs: List[Tuple[str, str, str, str]] = []
+        #: What each row of the sidebar stands for, or None for a heading.
+        self.rows: List[Optional[str]] = []
+        #: Whether the sidebar is up. Fork's is, and it is his to turn off.
+        self.sidebar = True
 
 
 #: What each open copy is looking at.
@@ -766,11 +771,58 @@ def _detail_title(at: Where) -> str:
     )
 
 
+#: What each shelf of the sidebar is called, in the order Fork stands them in.
+_SHELVES = [("branch", "Branches"), ("remote", "Remotes"), ("tag", "Tags")]
+
+
+def sidebar_of(at: Where) -> dict:
+    """Every branch, remote and tag, standing beside the log rather than
+    instead of it.
+
+    **This is the difference between Fork and the tool this used to copy.** A
+    list of branches on a page of its own is a place you go to and come back
+    from; a list of branches down the side is something you glance at, and the
+    glance is most of what it is for. It costs a part now, so it is one.
+
+    The rows are kept flat with a heading between the shelves. A heading is a
+    row that is `strong` and has nothing to press — which is the whole of what
+    a heading is, and needs no shape of its own in the contract.
+    """
+    rows: List[dict] = []
+    #: What each row *is*, so a press knows: `None` for a heading.
+    at.rows = []
+
+    for kind, heading in _SHELVES:
+        on_shelf = [ref for ref in at.refs if ref[0] == kind]
+        if not on_shelf:
+            continue
+        rows.append(row([cell("%s  %d" % (heading, len(on_shelf)))], role="dim"))
+        at.rows.append(None)
+        for _, name, subject, when in on_shelf:
+            rows.append(
+                row([
+                    cell(chips=[chip(
+                        name,
+                        # The one you are on is drawn as the one you are on,
+                        # here and in the log both.
+                        "head" if kind == "branch" and name == at.branch
+                        else kind,
+                    )])
+                ])
+            )
+            at.rows.append(name)
+
+    if not rows:
+        return text("This repository has no branches yet.")
+    return table([column("", flex=1)], rows)
+
+
 def page_of(at: Where, commits: List[Commit], graph: bool) -> dict:
     """The whole page: the log, and underneath it what the cursor is on.
 
-    The shape Git Extensions has and the reason the host grew parts: reading a
-    history means looking at a commit *without losing the list it is in*.
+    The shape Fork has, and the reason the host grew parts: reading a history
+    means looking at a commit *without losing the list it is in*, and knowing
+    what branches there are without going to look for them.
     """
     if not at.hash:
         detail: dict = text(
@@ -797,11 +849,21 @@ def page_of(at: Where, commits: List[Commit], graph: bool) -> dict:
             "horizontal",
         )
 
-    return split(
+    history = split(
         [
             part("log", content_of(commits, graph), weight=3),
             part("detail", detail, weight=2, title=_detail_title(at)),
         ]
+    )
+    if not at.sidebar:
+        return history
+
+    return split(
+        [
+            part("refs", sidebar_of(at), weight=1, title=at.name),
+            part("history", history, weight=4),
+        ],
+        "horizontal",
     )
 
 
@@ -885,7 +947,7 @@ def show(context, options: Optional[Dict[str, object]] = None,
     for commit in commits:
         commit.local = commit.hash in local
 
-    # The working tree at the head of the log, where Git Extensions puts it and
+    # The working tree at the head of the log, where Fork puts it and
     # where the eye goes first. Only when there is something in it: a row that
     # says "nothing has changed" is a row that has to be read to learn nothing.
     changes = working_tree(root) if ref is None else []
@@ -905,6 +967,8 @@ def show(context, options: Optional[Dict[str, object]] = None,
             ),
         )
 
+    at.refs = refs_of(root)
+    at.sidebar = bool(options.get("sidebar", True))
     _log_cache[context.session] = commits
     if commits:
         select_commit(at, commits[0])
@@ -961,61 +1025,6 @@ def _worktree_state(index: str, tree: str) -> str:
     return ", ".join(word for word in words if word)
 
 
-def show_refs(at: Where) -> dict:
-    """Every branch, tag and remote there is, freshest first."""
-    at.level = "refs"
-    at.refs = refs_of(at.root)
-
-    if not at.refs:
-        return respond(
-            content=text("This repository has no branches yet."),
-            trail=[at.name, at.branch, "refs"],
-            status="",
-        )
-
-    branches = sum(1 for kind, _, _, _ in at.refs if kind == "branch")
-    tags = sum(1 for kind, _, _, _ in at.refs if kind == "tag")
-    remotes = sum(1 for kind, _, _, _ in at.refs if kind == "remote")
-
-    return respond(
-        content=table(
-            [
-                column("Name", flex=2),
-                column("Last commit", flex=3),
-                column("When", width=118, align="right"),
-            ],
-            [
-                row(
-                    [
-                        # The one you are on is drawn as the one you are on:
-                        # `head` is the chip that says where you are, and that
-                        # is the first thing anybody looks for in this list.
-                        cell(chips=[chip(
-                            name,
-                            "head" if kind == "branch" and name == at.branch
-                            else kind,
-                        )]),
-                        subject,
-                        when,
-                    ]
-                )
-                for kind, name, subject, when in at.refs
-            ],
-        ),
-        trail=[at.name, at.branch, "refs"],
-        status="%d branch%s, %d tag%s, %d remote%s — press one to see its log, "
-        "or press it with the other button to open it in the panel beside this"
-        % (
-            branches,
-            "" if branches == 1 else "es",
-            tags,
-            "" if tags == 1 else "s",
-            remotes,
-            "" if remotes == 1 else "s",
-        ),
-    )
-
-
 @plugin.view(VIEW_ID, "Git", "The log of the repository this folder is in.")
 def git(context, event) -> dict:
     if event.kind == "open":
@@ -1032,10 +1041,18 @@ def git(context, event) -> dict:
         if at_row is None or at_row < 0:
             return respond()
 
-        if at.level == "refs":
-            if event.kind != "activate" or at_row >= len(at.refs):
+        # A ref in the sidebar is only followed when it is *asked* for. The
+        # cursor passing over one on its way down the list is not a request to
+        # re-read the whole history at it.
+        if event.part == "refs":
+            if event.kind != "activate":
                 return respond()
-            return show(context, _options.get(context.session), at.refs[at_row][1])
+            if at_row >= len(at.rows):
+                return respond()
+            name = at.rows[at_row]
+            if name is None:
+                return respond()
+            return show(context, _options.get(context.session), name)
 
         if event.part == "log":
             commits = _log_cache.get(context.session) or []
@@ -1086,8 +1103,10 @@ def git(context, event) -> dict:
         # commit. A commander already has two sides; the point of a tree at a
         # revision is having it next to the tree as it is now.
         at_row = event.row
-        if at.level == "refs" and at_row is not None and 0 <= at_row < len(at.refs):
-            name = at.refs[at_row][1]
+        if event.part == "refs" and at_row is not None and 0 <= at_row < len(at.rows):
+            name = at.rows[at_row]
+            if name is None:
+                return respond()
             return respond(
                 actions=[navigate(tree_url(at.root, name))],
                 status="%s — opened beside this one" % name,
@@ -1124,9 +1143,9 @@ def git(context, event) -> dict:
         return respond()
 
     if event.kind == "step" and at is not None:
-        # The trail is the way back, and there is only one place to come back
-        # from now: the list of branches.
-        at.level = "log"
+        # Everything is on the one page, so the trail has nowhere to go but
+        # back to the branch you are on — which is what a repository's name
+        # means when you press it.
         return show(context, _options.get(context.session))
 
     if event.kind == "button":
@@ -1167,11 +1186,6 @@ def git(context, event) -> dict:
                     )
                 ]
             )
-
-        if event.id == "refs":
-            if at is None:
-                return respond()
-            return show_refs(at)
 
         if event.id == "browse":
             # Whatever the bottom half is pointed at decides which commit that
