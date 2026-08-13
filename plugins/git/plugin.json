@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.git",
   "name": "Git",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "The repository the panel is standing in: its log and working tree, its branches, what each commit touched, and any commit as a folder.",
   "category": "Tools",
   "author": "xcommander",
@@ -29,7 +29,8 @@
         "titleBar"
       ],
       "follows": "location",
-      "keys": false
+      "keys": false,
+      "cursor": true
     }
   ],
   "settings": [

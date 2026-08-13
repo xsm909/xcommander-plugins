@@ -49,8 +49,10 @@ from xcommander import (
     RpcError,
     navigate,
     notice,
+    part,
     respond,
     row,
+    split,
     table,
     text,
 )
@@ -681,23 +683,32 @@ plugin.add_filesystem(GitFileSystem())
 class Where:
     """What one open copy of the view is looking at.
 
-    Three levels, and the trail at the top is how you walk back out of them —
-    the same way back a panel has, which is the answer this application gives
-    every view that goes into something.
+    Two levels now, not four. The log, what the commit under the cursor
+    touched, and the difference of the file under *that* cursor are one page
+    with a divider between them — so walking into a commit is not walking
+    anywhere, and the list you came from is still on screen. Only the list of
+    branches is a place of its own.
     """
 
     __slots__ = ("root", "branch", "name", "level", "hash", "short", "subject",
-                 "files", "refs")
+                 "author", "files", "file", "diff", "refs")
 
     def __init__(self, root: str, branch: str, name: str) -> None:
         self.root = root
         self.branch = branch
         self.name = name
+        #: `log` — the page — or `refs`.
         self.level = "log"
+        #: The commit whose files are showing. [WORKING] for the working tree.
         self.hash = ""
         self.short = ""
         self.subject = ""
+        self.author = ""
+        #: `(status, path)` for the commit being shown.
         self.files: List[Tuple[str, str]] = []
+        #: Which of them the difference below is of.
+        self.file = -1
+        self.diff = ""
         #: The branches, tags and remotes as last listed, so a press knows
         #: which row it was.
         self.refs: List[Tuple[str, str, str, str]] = []
@@ -708,9 +719,124 @@ _at: Dict[str, Where] = {}
 
 #: The rows the log last drew, so a press can say which commit it was. Kept
 #: rather than re-read: the row index is only meaningful against the list the
-#: user is actually looking at.
+#: user is actually looking at, and re-running `git log` because somebody
+#: pressed Down would make the arrow keys cost a process each.
 _log_cache: Dict[str, List[Commit]] = {}
 _options: Dict[str, Dict[str, object]] = {}
+
+
+# -- the page ------------------------------------------------------------------
+
+
+def _files_content(at: Where) -> dict:
+    """What the commit under the cursor touched."""
+    if at.hash == WORKING:
+        return table(
+            [column("", width=150), column("File", flex=1)],
+            [
+                # Staged is the one state worth a mark of its own: it is what
+                # the next commit will be made of.
+                row(
+                    [_worktree_state(status[0], (status + "  ")[1]), path],
+                    role="accent" if status[0] not in (" ", "?") else "normal",
+                )
+                for status, path in at.files
+            ],
+        )
+
+    return table(
+        [column("", width=96), column("File", flex=1)],
+        [row([_STATUS.get(status, status), path]) for status, path in at.files],
+    )
+
+
+def _detail_title(at: Where) -> str:
+    if not at.hash:
+        return "Nothing selected"
+    if at.hash == WORKING:
+        staged = sum(1 for status, _ in at.files if status[0] not in (" ", "?"))
+        return "Working tree — %d changed%s" % (
+            len(at.files),
+            ", %d staged" % staged if staged else "",
+        )
+    return "%s — %s%s" % (
+        at.short,
+        at.subject,
+        " · %s" % at.author if at.author else "",
+    )
+
+
+def page_of(at: Where, commits: List[Commit], graph: bool) -> dict:
+    """The whole page: the log, and underneath it what the cursor is on.
+
+    The shape Git Extensions has and the reason the host grew parts: reading a
+    history means looking at a commit *without losing the list it is in*.
+    """
+    if not at.hash:
+        detail: dict = text(
+            "Move down the log and what each commit touched shows here."
+        )
+    elif not at.files:
+        detail = text(
+            "Nothing has changed since the last commit."
+            if at.hash == WORKING
+            else "This commit changed nothing on its own. A merge usually has "
+            "not: what came with it belongs to the commits it joined."
+        )
+    else:
+        detail = split(
+            [
+                part("files", _files_content(at), weight=2),
+                part(
+                    "diff",
+                    text(at.diff or "Nothing to show for this file.",
+                         language="diff"),
+                    weight=3,
+                ),
+            ],
+            "horizontal",
+        )
+
+    return split(
+        [
+            part("log", content_of(commits, graph), weight=3),
+            part("detail", detail, weight=2, title=_detail_title(at)),
+        ]
+    )
+
+
+def select_commit(at: Where, commit: Commit) -> None:
+    """Points the bottom half at a commit, and at the first file in it."""
+    at.hash = commit.hash
+    at.short = commit.short
+    at.subject = commit.subject or (
+        "" if commit.hash == WORKING else message_of(at.root, commit.hash)
+    )
+    at.author = commit.author
+
+    if commit.hash == WORKING:
+        at.files = [
+            (index + tree, path) for index, tree, path in working_tree(at.root)
+        ]
+    else:
+        at.files = files_of(at.root, commit.hash)
+
+    at.file = -1
+    at.diff = ""
+    if at.files:
+        select_file(at, 0)
+
+
+def select_file(at: Where, index: int) -> None:
+    """Points the difference at one of the files, and reads it."""
+    if index < 0 or index >= len(at.files):
+        return
+    at.file = index
+    status, path = at.files[index]
+    if at.hash == WORKING:
+        at.diff = worktree_diff(at.root, status[0], (status + "  ")[1], path)
+    else:
+        at.diff = diff_of(at.root, at.hash, path)
 
 
 def show(context, options: Optional[Dict[str, object]] = None,
@@ -744,7 +870,8 @@ def show(context, options: Optional[Dict[str, object]] = None,
     # A named ref is looked at *instead of* the branch you are on, and the
     # trail says which — nothing is checked out, nothing moves.
     showing = ref or branch
-    _at[context.session] = Where(root, showing, name)
+    at = Where(root, showing, name)
+    _at[context.session] = at
 
     graph = bool(options.get("graph", True))
     commits = log_of(
@@ -779,10 +906,12 @@ def show(context, options: Optional[Dict[str, object]] = None,
         )
 
     _log_cache[context.session] = commits
+    if commits:
+        select_commit(at, commits[0])
     count = sum(1 for commit in commits if commit.local)
 
     return respond(
-        content=content_of(commits, graph),
+        content=page_of(at, commits, graph),
         title="Git",
         trail=[name, showing],
         status="%s — %s%s"
@@ -796,79 +925,18 @@ def show(context, options: Optional[Dict[str, object]] = None,
     )
 
 
-def show_commit(session: str, at: Where, commit: Commit) -> dict:
-    """What one commit touched."""
-    at.level = "commit"
-    at.hash = commit.hash
-    at.short = commit.short
-    at.subject = commit.subject or message_of(at.root, commit.hash)
-    at.files = files_of(at.root, commit.hash)
+def redraw(session: str, at: Where) -> dict:
+    """The page again, from what is already known.
 
-    if not at.files:
-        # A merge that brought nothing of its own is git's own answer, and it
-        # is worth saying rather than showing an empty table.
-        return respond(
-            content=text(
-                "This commit changed nothing on its own. A merge usually has "
-                "not: what came with it belongs to the commits it joined."
-            ),
-            trail=[at.name, at.branch, at.short],
-            status="%s — %s · %s" % (at.short, at.subject, commit.author),
-        )
-
+    **Nothing here runs `git log`.** Moving down the log has to cost one call
+    for the files and one for the difference, and no more: an arrow key held
+    down would otherwise walk a history by starting a process per row.
+    """
+    options = _options.get(session, dict(plugin.settings))
+    commits = _log_cache.get(session) or []
     return respond(
-        content=table(
-            [column("", width=96), column("File", flex=1)],
-            [
-                row([_STATUS.get(status, status), path])
-                for status, path in at.files
-            ],
-        ),
-        trail=[at.name, at.branch, at.short],
-        status="%s — %s · %s · %d file%s"
-        % (
-            at.short,
-            at.subject,
-            commit.author,
-            len(at.files),
-            "" if len(at.files) == 1 else "s",
-        ),
-    )
-
-
-def show_working(at: Where) -> dict:
-    """What is changed and what is staged, right now."""
-    at.level = "working"
-    at.hash = WORKING
-    at.short = "working tree"
-    at.subject = ""
-    changes = working_tree(at.root)
-    at.files = [(index + tree, path) for index, tree, path in changes]
-
-    if not changes:
-        return respond(
-            content=text("Nothing has changed since the last commit."),
-            trail=[at.name, at.branch, at.short],
-            status="clean",
-        )
-
-    staged = sum(1 for index, _, _ in changes if index not in (" ", "?"))
-    return respond(
-        content=table(
-            [column("", width=150), column("File", flex=1)],
-            [
-                # Staged is the one state worth a mark of its own: it is what
-                # the next commit will be made of.
-                row(
-                    [_worktree_state(index, tree), path],
-                    role="accent" if index not in (" ", "?") else "normal",
-                )
-                for index, tree, path in changes
-            ],
-        ),
-        trail=[at.name, at.branch, at.short],
-        status="%d changed%s"
-        % (len(changes), ", %d staged" % staged if staged else ""),
+        content=page_of(at, commits, bool(options.get("graph", True))),
+        status=_detail_title(at),
     )
 
 
@@ -948,27 +1016,6 @@ def show_refs(at: Where) -> dict:
     )
 
 
-def show_file(at: Where, status: str, path: str) -> dict:
-    """One file's difference — in a commit, or against what is committed."""
-    at.level = "file"
-
-    if at.hash == WORKING:
-        body = worktree_diff(at.root, status[0], status[1:2] or " ", path)
-        where = "in the working tree"
-    else:
-        body = diff_of(at.root, at.hash, path)
-        where = "in %s" % at.short
-
-    return respond(
-        content=text(
-            body or "Nothing to show for this file %s." % where,
-            language="diff",
-        ),
-        trail=[at.name, at.branch, at.short, path],
-        status="%s — %s" % (path, where),
-    )
-
-
 @plugin.view(VIEW_ID, "Git", "The log of the repository this folder is in.")
 def git(context, event) -> dict:
     if event.kind == "open":
@@ -976,29 +1023,32 @@ def git(context, event) -> dict:
 
     at = _at.get(context.session)
 
-    if event.kind == "activate" and at is not None:
+    # The cursor coming to rest, and a row being opened, mean the same thing on
+    # this page: show me that one. There is nowhere to *go* — the log stays
+    # where it is and the half underneath fills in — so Enter has nothing to
+    # add that moving there did not already do.
+    if event.kind in ("cursor", "activate") and at is not None:
         at_row = event.row
         if at_row is None or at_row < 0:
             return respond()
 
-        if at.level == "log":
-            commits = _log_cache.get(context.session) or []
-            if at_row >= len(commits):
-                return respond()
-            if commits[at_row].hash == WORKING:
-                return show_working(at)
-            return show_commit(context.session, at, commits[at_row])
-
         if at.level == "refs":
-            if at_row >= len(at.refs):
+            if event.kind != "activate" or at_row >= len(at.refs):
                 return respond()
             return show(context, _options.get(context.session), at.refs[at_row][1])
 
-        if at.level in ("commit", "working"):
-            if at_row >= len(at.files):
+        if event.part == "log":
+            commits = _log_cache.get(context.session) or []
+            if at_row >= len(commits):
                 return respond()
-            status, path = at.files[at_row]
-            return show_file(at, status, path)
+            select_commit(at, commits[at_row])
+            return redraw(context.session, at)
+
+        if event.part == "files":
+            if at_row >= len(at.files) or at_row == at.file:
+                return respond()
+            select_file(at, at_row)
+            return redraw(context.session, at)
 
         return respond()
 
@@ -1027,8 +1077,9 @@ def git(context, event) -> dict:
 
         if not done:
             return respond(actions=[notice(said)])
-        # Back to the tree, which is now a different tree.
-        return show_working(at)
+        # The tree is a different tree now, and the whole page has to say so:
+        # the row at the head of the log counts what has changed.
+        return show(context, _options.get(context.session))
 
     if event.kind == "mark" and at is not None:
         # The secondary press sends the panel beside this one *into* the
@@ -1042,9 +1093,10 @@ def git(context, event) -> dict:
                 status="%s — opened beside this one" % name,
             )
 
-        if at.level == "working" and at_row is not None and 0 <= at_row < len(at.files):
+        if (event.part == "files" and at.hash == WORKING
+                and at_row is not None and 0 <= at_row < len(at.files)):
             state, path = at.files[at_row]
-            index, tree = (state + "  ")[0], (state + "  ")[1]
+            index = (state + "  ")[0]
             if index not in (" ", "?"):
                 kind, title, confirm = (
                     "unstage",
@@ -1062,7 +1114,7 @@ def git(context, event) -> dict:
                 actions=[ask(kind, title, "In %s." % at.name, confirm=confirm)]
             )
 
-        if at.level == "log" and at_row is not None and at_row >= 0:
+        if event.part == "log" and at_row is not None and at_row >= 0:
             commits = _log_cache.get(context.session) or []
             if at_row < len(commits) and commits[at_row].hash != WORKING:
                 return respond(
@@ -1072,15 +1124,8 @@ def git(context, event) -> dict:
         return respond()
 
     if event.kind == "step" and at is not None:
-        # The trail is the way back, level by level: the repository and the
-        # branch are the log, the hash is the commit it was opened from.
-        if event.row is not None and event.row >= 2 and at.level == "file":
-            if at.hash == WORKING:
-                return show_working(at)
-            commits = _log_cache.get(context.session) or []
-            for commit in commits:
-                if commit.hash == at.hash:
-                    return show_commit(context.session, at, commit)
+        # The trail is the way back, and there is only one place to come back
+        # from now: the list of branches.
         at.level = "log"
         return show(context, _options.get(context.session))
 
@@ -1088,6 +1133,7 @@ def git(context, event) -> dict:
         options = _options.get(context.session, dict(plugin.settings))
         if event.id == "refresh":
             return show(context, options)
+
         if event.id == "checkout":
             if at is None:
                 return respond()
@@ -1126,9 +1172,10 @@ def git(context, event) -> dict:
             if at is None:
                 return respond()
             return show_refs(at)
+
         if event.id == "browse":
-            # Whatever level is open decides which commit that is: the one
-            # being looked at, or the tip when the whole log is.
+            # Whatever the bottom half is pointed at decides which commit that
+            # is, or the tip when it is pointed at nothing.
             if at is None:
                 return respond()
             ref = at.hash if at.hash and at.hash != WORKING else "HEAD"
@@ -1136,6 +1183,7 @@ def git(context, event) -> dict:
                 actions=[navigate(tree_url(at.root, ref))],
                 status="%s — opened beside this one" % (at.short or ref),
             )
+
         if event.id and event.id.startswith("toggle."):
             key = event.id.split(".", 1)[1]
             options = dict(options)
