@@ -1,0 +1,59 @@
+{
+  "id": "org.xcommander.git",
+  "name": "Git",
+  "version": "0.2.0",
+  "description": "The repository the panel is standing in: its log, what is not pushed yet, what each commit touched and how.",
+  "category": "Tools",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "code",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "views": [
+    {
+      "id": "git.log",
+      "title": "Git",
+      "description": "The log of the repository this folder is in.",
+      "icon": "code",
+      "surfaces": [
+        "fullscreen",
+        "panel",
+        "menu",
+        "titleBar"
+      ],
+      "follows": "location",
+      "keys": false
+    }
+  ],
+  "settings": [
+    {
+      "key": "commits",
+      "label": "Commits to read",
+      "type": "integer",
+      "default": 200,
+      "hint": "200",
+      "note": "A log is walked from the tip, so this is how far back it goes. Large repositories have hundreds of thousands of commits and nobody scrolls to the beginning."
+    },
+    {
+      "key": "allBranches",
+      "label": "Every branch, not only this one",
+      "type": "boolean",
+      "default": false,
+      "note": "Off shows the branch you are on. On shows the lot, which is what a graph is for and what makes it hard to read."
+    },
+    {
+      "key": "graph",
+      "label": "Draw the shape of the history",
+      "type": "boolean",
+      "default": true,
+      "note": "The lines down the left that say what came from where. Turn it off for a plain list."
+    }
+  ]
+}
