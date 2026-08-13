@@ -341,10 +341,13 @@ def rows_of(commits: List[Commit], graph: bool) -> List[dict]:
         rows.append(
             row(
                 cells,
-                # Not pushed is the one thing about a commit worth saying in
-                # colour, and `accent` is how a row says "there is something
-                # different about this one" without naming a colour.
-                role="strong" if commit.hash == WORKING
+                # The working tree is not in the history: `pending` is the row
+                # saying it is real but not written down yet, which the host
+                # draws a fifth lighter. Not pushed is the other thing about a
+                # commit worth saying without words, and `accent` says "there
+                # is something different about this one" without naming a
+                # colour.
+                role="pending" if commit.hash == WORKING
                 else "accent" if commit.local
                 else "normal",
                 braid=braids[index] if graph else None,
@@ -794,9 +797,11 @@ def _files_content(at: Where) -> dict:
                         _mark_of(status[0], (status + "  ")[1]),
                         path,
                     ],
-                    # Staged is the one state worth saying twice: it is what
-                    # the next commit will be made of.
-                    role="accent" if status[0] not in (" ", "?") else "normal",
+                    # What is staged is what the next commit will be made of,
+                    # and stands out; what is not is `pending` — there, real,
+                    # and not going anywhere yet.
+                    role="accent" if status[0] not in (" ", "?")
+                    else "pending",
                 )
                 for status, path in at.files
             ],
