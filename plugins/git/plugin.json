@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.git",
   "name": "Git",
-  "version": "0.17.0",
+  "version": "0.17.1",
   "description": "The repository the panel is standing in, on one page: its branches, its log with the shape of the history drawn, what each commit touched and the difference itself.",
   "category": "Tools",
   "author": "xcommander",
@@ -69,7 +69,7 @@
       "label": "Show pictures of the people",
       "type": "boolean",
       "default": false,
-      "note": "Off, and then nothing here touches the network. On, the application looks each author up at gravatar.com by the address in the commit and keeps what it finds on your disk. A row never waits for it: the ring shows initials until a picture arrives, and goes on showing them for anybody who has none."
+      "note": "Off, and then nothing here touches the network. On, the application works out where a picture of each author might be from the address in the commit — GitHub for the addresses GitHub hands out, Gravatar for anybody else — and keeps what it finds on your disk. A row never waits for it: the ring shows initials until a picture arrives, and goes on showing them for anybody who has none."
     }
   ],
   "schemes": [
