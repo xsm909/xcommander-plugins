@@ -1253,7 +1253,33 @@ def git(context, event) -> dict:
             return redraw(context.session, at)
 
         if event.part == "files":
-            if at_row >= len(at.files) or at_row == at.file:
+            if at_row >= len(at.files):
+                return respond()
+
+            # Opening a file sends the panel beside this one *to* it, as it was
+            # at this commit. That is the whole point of the tool for the case
+            # it exists for: the files of the day it worked, there to be read,
+            # compared with what is there now, or copied back out. A binary
+            # asset cannot be checked by reading a diff of it, and this is what
+            # answers that.
+            if event.kind == "activate":
+                status, path = at.files[at_row]
+                if at.hash and at.hash != WORKING and status != "D":
+                    if at_row != at.file:
+                        select_file(at, at_row)
+                    answer = redraw(context.session, at)
+                    folder, _, name = path.rpartition("/")
+                    answer["actions"] = [
+                        navigate(
+                            tree_url(at.root, at.hash, folder),
+                            name=name,
+                        )
+                    ]
+                    answer["status"] = "%s — as it was at %s, in the panel " \
+                        "beside this one" % (path, at.short)
+                    return answer
+
+            if at_row == at.file:
                 return respond()
             select_file(at, at_row)
             return redraw(context.session, at)
