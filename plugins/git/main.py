@@ -37,12 +37,14 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from xcommander import (
     DIRECTORY,
+    ask,
     Entry,
     FILE,
     FileSystem,
     Plugin,
     RpcError,
     navigate,
+    notice,
     respond,
     table,
     text,
@@ -257,6 +259,7 @@ def menus_of(options: Dict[str, object]) -> List[dict]:
                 {"id": "refresh", "label": "Read it again", "shortcut": "F5"},
                 {},
                 {"id": "refs", "label": "Branches, tags and remotes"},
+                {"id": "checkout", "label": "Switch to the branch being shown"},
                 {
                     "id": "browse",
                     "label": "Open this commit in the panel beside this one",
@@ -398,6 +401,37 @@ def refs_of(root: str) -> List[Tuple[str, str, str, str]]:
             kind = "tag"
         refs.append((kind, short, subject, when))
     return refs
+
+
+# -- the few things that write --------------------------------------------------
+
+#: What has been asked and is waiting for an answer, per session. The question
+#: carries only an id across the round trip, so this is where the rest of it
+#: waits.
+_pending: Dict[str, Tuple[str, str]] = {}
+
+
+def do(root: str, *args: str) -> Tuple[bool, str]:
+    """Runs a git command that changes something, and says how it went.
+
+    Separate from `run` because the answer that matters here is different: a
+    reader wants the output, and a writer wants to know whether it worked and
+    what git said when it did not — which is what the user has to be shown.
+    """
+    try:
+        done = subprocess.run(
+            ["git", "-C", root, *args],
+            capture_output=True,
+            timeout=TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as failure:
+        return False, str(failure)
+
+    if done.returncode == 0:
+        return True, done.stdout.decode("utf-8", "replace").strip()
+    message = done.stderr.decode("utf-8", "replace").strip()
+    return False, message or "git refused, and said nothing about why."
 
 
 def message_of(root: str, hash: str) -> str:
@@ -856,6 +890,34 @@ def git(context, event) -> dict:
 
         return respond()
 
+    if event.kind == "answered" and at is not None:
+        question = _pending.pop("%s:%s" % (context.session, event.id or ""), None)
+        if question is None or not event.accepted:
+            # No is an answer, and the honest thing is to say nothing happened
+            # rather than to leave the view looking as though it might have.
+            return respond(status="Nothing was changed.")
+
+        kind, subject = question
+        if kind == "checkout":
+            done, said = do(at.root, "checkout", subject)
+            if not done:
+                return respond(actions=[notice(said)])
+            return show(context, _options.get(context.session))
+
+        if kind == "stage":
+            done, said = do(at.root, "add", "--", subject)
+        elif kind == "unstage":
+            done, said = do(at.root, "restore", "--staged", "--", subject)
+        elif kind == "discard":
+            done, said = do(at.root, "restore", "--", subject)
+        else:
+            return respond()
+
+        if not done:
+            return respond(actions=[notice(said)])
+        # Back to the tree, which is now a different tree.
+        return show_working(at)
+
     if event.kind == "mark" and at is not None:
         # The secondary press sends the panel beside this one *into* the
         # commit. A commander already has two sides; the point of a tree at a
@@ -866,6 +928,26 @@ def git(context, event) -> dict:
             return respond(
                 actions=[navigate(tree_url(at.root, name))],
                 status="%s — opened beside this one" % name,
+            )
+
+        if at.level == "working" and row is not None and 0 <= row < len(at.files):
+            state, path = at.files[row]
+            index, tree = (state + "  ")[0], (state + "  ")[1]
+            if index not in (" ", "?"):
+                kind, title, confirm = (
+                    "unstage",
+                    "Take %s out of the next commit?" % path,
+                    "Unstage",
+                )
+            else:
+                kind, title, confirm = (
+                    "stage",
+                    "Put %s in the next commit?" % path,
+                    "Stage",
+                )
+            _pending["%s:%s" % (context.session, kind)] = (kind, path)
+            return respond(
+                actions=[ask(kind, title, "In %s." % at.name, confirm=confirm)]
             )
 
         if at.level == "log" and row is not None and row >= 0:
@@ -894,6 +976,40 @@ def git(context, event) -> dict:
         options = _options.get(context.session, dict(plugin.settings))
         if event.id == "refresh":
             return show(context, options)
+        if event.id == "checkout":
+            if at is None:
+                return respond()
+            branch = at.branch
+            current = (run(at.root, "rev-parse", "--abbrev-ref", "HEAD") or "").strip()
+            if not branch or branch == current:
+                return respond(actions=[notice("You are on %s already." % branch)])
+
+            dirty = run(at.root, "status", "--porcelain") or ""
+            if dirty.strip():
+                # **Refused, not negotiated.** Switching with a dirty tree is
+                # where somebody else's merge conflict comes from, and the tool
+                # that offered it is the one that gets blamed for it.
+                return respond(
+                    actions=[
+                        notice(
+                            "There are changes that are not committed. "
+                            "Deal with them first — this will not decide for you."
+                        )
+                    ]
+                )
+
+            _pending["%s:checkout" % context.session] = ("checkout", branch)
+            return respond(
+                actions=[
+                    ask(
+                        "checkout",
+                        "Switch to %s?" % branch,
+                        "Your working tree is clean, so nothing will be lost.",
+                        confirm="Switch",
+                    )
+                ]
+            )
+
         if event.id == "refs":
             if at is None:
                 return respond()

@@ -58,3 +58,9 @@ Staging, committing, checking out — everything that changes a repository — i
 later segment, and it is waiting on something the application has to learn
 first: how a plugin asks a question. Checking out a branch changes your working
 tree, and doing that without asking is not a thing this will do.
+
+## The mark
+
+`icon.png` is the Git logo by [Jason Long](https://git-scm.com/community/logos),
+used under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). It is his
+work, not ours, and it travels with this plugin under his licence.
