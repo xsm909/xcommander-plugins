@@ -1,8 +1,8 @@
 {
   "id": "org.xcommander.git",
   "name": "Git",
-  "version": "0.3.0",
-  "description": "The repository the panel is standing in: its log, its working tree, what is not pushed yet, and what each commit touched.",
+  "version": "0.5.0",
+  "description": "The repository the panel is standing in: its log and working tree, its branches and tags, what each commit touched, and any commit as a folder.",
   "category": "Tools",
   "author": "xcommander",
   "homepage": "https://github.com/xsm909/xcommander-plugins",
@@ -55,5 +55,8 @@
       "default": true,
       "note": "The lines down the left that say what came from where. Turn it off for a plain list."
     }
+  ],
+  "schemes": [
+    "git"
   ]
 }

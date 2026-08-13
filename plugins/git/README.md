@@ -32,6 +32,21 @@ because dropping them breaks the lines they belong to.
 
 `↑` marks a commit no remote has yet.
 
+**Branches, tags and remotes** are under Repository in the menu, freshest first,
+with an arrow on the one you are on. Press one for its log; press it with the
+other button to open its tree in the panel beside this one.
+
+## A commit is a folder
+
+Press a commit with the **other button** — or ask for it from the menu — and the
+panel beside this one stands inside that commit. It is an ordinary panel from
+there: F3 reads a file as it was, F5 copies it out, Tab completes names in it.
+The tree as it was, next to the tree as it is, which is the thing a two-panel
+file manager is for.
+
+Read-only, and not by omission: history is what has happened, and a panel that
+offered to write into it would be offering something git itself does not do.
+
 ## What it will not do
 
 **It does not write, and it does not touch the network.** Whether a commit is

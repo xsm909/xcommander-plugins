@@ -33,9 +33,20 @@ from __future__ import annotations
 import os
 import subprocess
 from typing import Dict, List, Optional, Tuple
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from xcommander import Plugin, respond, table, text
+from xcommander import (
+    DIRECTORY,
+    Entry,
+    FILE,
+    FileSystem,
+    Plugin,
+    RpcError,
+    navigate,
+    respond,
+    table,
+    text,
+)
 
 VIEW_ID = "git.log"
 
@@ -121,7 +132,8 @@ class Commit:
         self.local = False
 
 
-def log_of(root: str, count: int, all_branches: bool, graph: bool) -> List[Commit]:
+def log_of(root: str, count: int, all_branches: bool, graph: bool,
+           ref: str = "HEAD") -> List[Commit]:
     """The log, with git's own drawing of its shape down the left.
 
     **The graph is git's, not ours.** Working out which lane a commit belongs
@@ -136,7 +148,7 @@ def log_of(root: str, count: int, all_branches: bool, graph: bool) -> List[Commi
         root,
         "log",
         *(["--graph"] if graph else []),
-        "--all" if all_branches else "HEAD",
+        "--all" if all_branches else ref,
         "--max-count=%d" % count,
         "--date=format:%Y-%m-%d %H:%M",
         "--pretty=format:" + fields,
@@ -244,6 +256,12 @@ def menus_of(options: Dict[str, object]) -> List[dict]:
             "items": [
                 {"id": "refresh", "label": "Read it again", "shortcut": "F5"},
                 {},
+                {"id": "refs", "label": "Branches, tags and remotes"},
+                {
+                    "id": "browse",
+                    "label": "Open this commit in the panel beside this one",
+                },
+                {},
                 {
                     "id": "toggle.allBranches",
                     "label": "Every branch, not only this one",
@@ -346,6 +364,42 @@ def worktree_diff(root: str, index: str, tree: str, path: str) -> str:
     return (body or "").lstrip("\n")
 
 
+def refs_of(root: str) -> List[Tuple[str, str, str, str]]:
+    """Every branch, tag and remote branch: `(kind, name, subject, when)`.
+
+    One call rather than three. `for-each-ref` is git's own answer to "what is
+    there", and sorting by when it was last touched puts what somebody is
+    working on at the top — which is where they will look for it.
+    """
+    body = run(
+        root,
+        "for-each-ref",
+        "--sort=-committerdate",
+        "--format=%(refname:short)" + FS + "%(refname)" + FS
+        + "%(contents:subject)" + FS + "%(committerdate:format:%Y-%m-%d %H:%M)",
+        "refs/heads",
+        "refs/remotes",
+        "refs/tags",
+    )
+    if not body:
+        return []
+
+    refs: List[Tuple[str, str, str, str]] = []
+    for line in body.splitlines():
+        parts = line.split(FS)
+        if len(parts) < 4:
+            continue
+        short, full, subject, when = parts[0], parts[1], parts[2], parts[3]
+        if full.startswith("refs/heads/"):
+            kind = "branch"
+        elif full.startswith("refs/remotes/"):
+            kind = "remote"
+        else:
+            kind = "tag"
+        refs.append((kind, short, subject, when))
+    return refs
+
+
 def message_of(root: str, hash: str) -> str:
     return (run(root, "show", "-s", "--pretty=format:%s", hash) or "").strip()
 
@@ -364,6 +418,139 @@ def diff_of(root: str, hash: str, path: str) -> str:
     return (body or "").lstrip("\n")
 
 
+# -- a commit as a folder -------------------------------------------------------
+
+
+def tree_url(root: str, ref: str, inner: str = "") -> str:
+    """Where a panel goes to stand inside a commit.
+
+    Shaped like the archive plugin's: the path is the path *inside* the tree
+    and what it is inside rides in the query. That is what keeps "up one level"
+    ordinary string work for the host rather than something every file system
+    has to be asked about.
+    """
+    return "git:///%s?repo=%s&ref=%s" % (
+        quote(inner.strip("/")),
+        quote("file://" + root, safe=""),
+        quote(ref, safe=""),
+    )
+
+
+def _split(url: str) -> Tuple[str, str, str]:
+    """A `git:` url as `(repository root, ref, path inside)`."""
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query)
+    repo = local_path((query.get("repo") or [""])[0])
+    ref = (query.get("ref") or [""])[0]
+    if not repo or not ref:
+        raise RpcError("This is not a place in a repository: %s" % url)
+    return repo, ref, unquote(parsed.path or "").strip("/")
+
+
+class GitFileSystem(FileSystem):
+    """A commit, read as a folder.
+
+    Read-only, and not by omission: history is what has happened, and a panel
+    that offered to write into it would be offering something git itself does
+    not do. Copying *out* of a commit is only reads, and that is the thing
+    somebody actually wants — the file as it was, next to the file as it is.
+    """
+
+    scheme = "git"
+
+    def __init__(self) -> None:
+        #: The last blob read, so scrolling a file does not re-run git for
+        #: every block the viewer asks for.
+        self._blob: Optional[Tuple[str, bytes]] = None
+        #: When each ref was committed. Every entry in a tree carries it,
+        #: because "the tree at that revision" has exactly one date.
+        self._dated: Dict[str, Optional[float]] = {}
+
+    # -- listing -----------------------------------------------------------
+
+    def list(self, url: str) -> List[Entry]:
+        root, ref, inner = _split(url)
+        body = run(root, "ls-tree", "--long", "%s:%s" % (ref, inner))
+        if body is None:
+            raise RpcError("%s is not in %s" % (inner or "/", ref))
+
+        when = self._when(root, ref)
+        entries: List[Entry] = []
+        for line in body.splitlines():
+            if "\t" not in line:
+                continue
+            head, name = line.split("\t", 1)
+            parts = head.split()
+            if len(parts) < 3:
+                continue
+            kind = parts[1]
+            size = 0
+            if len(parts) >= 4 and parts[3].isdigit():
+                size = int(parts[3])
+            entries.append(
+                Entry(
+                    name=name.strip('"'),
+                    # A submodule is a commit inside a tree. It is a folder to
+                    # look at even though nothing here can walk into it.
+                    kind=DIRECTORY if kind in ("tree", "commit") else FILE,
+                    size=size,
+                    modified=when,
+                    hidden=name.startswith("."),
+                )
+            )
+        return entries
+
+    def stat(self, url: str) -> Optional[Entry]:
+        root, ref, inner = _split(url)
+        if not inner:
+            return Entry(name=ref, kind=DIRECTORY, modified=self._when(root, ref))
+
+        parent, _, name = inner.rpartition("/")
+        for entry in self.list(tree_url(root, ref, parent)):
+            if entry.name == name:
+                return entry
+        return None
+
+    # -- reading -----------------------------------------------------------
+
+    def read(self, url: str, offset: int, length: int) -> bytes:
+        root, ref, inner = _split(url)
+        key = "%s\x00%s\x00%s" % (root, ref, inner)
+
+        if self._blob is None or self._blob[0] != key:
+            data = self._blob_of(root, ref, inner)
+            self._blob = (key, data)
+        return self._blob[1][offset:offset + length]
+
+    def _blob_of(self, root: str, ref: str, inner: str) -> bytes:
+        try:
+            done = subprocess.run(
+                ["git", "-C", root, "cat-file", "blob", "%s:%s" % (ref, inner)],
+                capture_output=True,
+                timeout=TIMEOUT,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as failure:
+            raise RpcError("Could not read %s in %s: %s" % (inner, ref, failure))
+        if done.returncode != 0:
+            raise RpcError("%s is not a file in %s" % (inner, ref))
+        return done.stdout
+
+    def _when(self, root: str, ref: str) -> Optional[float]:
+        if ref in self._dated:
+            return self._dated[ref]
+        stamp = run(root, "show", "-s", "--pretty=format:%ct", ref)
+        try:
+            when = float((stamp or "").strip())
+        except ValueError:
+            when = None
+        self._dated[ref] = when
+        return when
+
+
+plugin.add_filesystem(GitFileSystem())
+
+
 # -- the view ------------------------------------------------------------------
 
 
@@ -376,7 +563,7 @@ class Where:
     """
 
     __slots__ = ("root", "branch", "name", "level", "hash", "short", "subject",
-                 "files")
+                 "files", "refs")
 
     def __init__(self, root: str, branch: str, name: str) -> None:
         self.root = root
@@ -387,6 +574,9 @@ class Where:
         self.short = ""
         self.subject = ""
         self.files: List[Tuple[str, str]] = []
+        #: The branches, tags and remotes as last listed, so a press knows
+        #: which row it was.
+        self.refs: List[Tuple[str, str, str, str]] = []
 
 
 #: What each open copy is looking at.
@@ -399,7 +589,8 @@ _log_cache: Dict[str, List[Commit]] = {}
 _options: Dict[str, Dict[str, object]] = {}
 
 
-def show(context, options: Optional[Dict[str, object]] = None) -> dict:
+def show(context, options: Optional[Dict[str, object]] = None,
+         ref: Optional[str] = None) -> dict:
     folder = local_path(context.url)
     if options is None:
         options = dict(plugin.settings)
@@ -426,13 +617,17 @@ def show(context, options: Optional[Dict[str, object]] = None) -> dict:
 
     branch, state = state_of(root)
     name = os.path.basename(root.rstrip("/\\")) or root
-    _at[context.session] = Where(root, branch, name)
+    # A named ref is looked at *instead of* the branch you are on, and the
+    # trail says which — nothing is checked out, nothing moves.
+    showing = ref or branch
+    _at[context.session] = Where(root, showing, name)
 
     commits = log_of(
         root,
         int(options.get("commits", 200) or 200),
         bool(options.get("allBranches", False)),
         bool(options.get("graph", True)),
+        ref or "HEAD",
     )
     local = unpushed(root)
     for commit in commits:
@@ -441,7 +636,7 @@ def show(context, options: Optional[Dict[str, object]] = None) -> dict:
     # The working tree at the head of the log, where Git Extensions puts it and
     # where the eye goes first. Only when there is something in it: a row that
     # says "nothing has changed" is a row that has to be read to learn nothing.
-    changes = working_tree(root)
+    changes = working_tree(root) if ref is None else []
     if changes:
         staged = sum(1 for index, _, _ in changes if index not in (" ", "?"))
         commits.insert(
@@ -463,10 +658,10 @@ def show(context, options: Optional[Dict[str, object]] = None) -> dict:
     return respond(
         content=content_of(commits, local),
         title="Git",
-        trail=[name, branch],
+        trail=[name, showing],
         status="%s — %s%s"
         % (
-            branch,
+            showing if ref is None else "%s (looking, not checked out)" % showing,
             state,
             ", %d not pushed" % count if count else "",
         ),
@@ -561,6 +756,51 @@ def _worktree_state(index: str, tree: str) -> str:
     return ", ".join(word for word in words if word)
 
 
+def show_refs(at: Where) -> dict:
+    """Every branch, tag and remote there is, freshest first."""
+    at.level = "refs"
+    at.refs = refs_of(at.root)
+
+    if not at.refs:
+        return respond(
+            content=text("This repository has no branches yet."),
+            trail=[at.name, at.branch, "refs"],
+            status="",
+        )
+
+    branches = sum(1 for kind, _, _, _ in at.refs if kind == "branch")
+    tags = sum(1 for kind, _, _, _ in at.refs if kind == "tag")
+    remotes = sum(1 for kind, _, _, _ in at.refs if kind == "remote")
+
+    return respond(
+        content=table(
+            ["", "Name", "Last commit", "When"],
+            [
+                [
+                    # The one you are on says so, because that is the first
+                    # thing anybody looks for in this list.
+                    "→" if kind == "branch" and name == at.branch else kind,
+                    name,
+                    subject,
+                    when,
+                ]
+                for kind, name, subject, when in at.refs
+            ],
+        ),
+        trail=[at.name, at.branch, "refs"],
+        status="%d branch%s, %d tag%s, %d remote%s — press one to see its log, "
+        "or press it with the other button to open it in the panel beside this"
+        % (
+            branches,
+            "" if branches == 1 else "es",
+            tags,
+            "" if tags == 1 else "s",
+            remotes,
+            "" if remotes == 1 else "s",
+        ),
+    )
+
+
 def show_file(at: Where, status: str, path: str) -> dict:
     """One file's difference — in a commit, or against what is committed."""
     at.level = "file"
@@ -603,12 +843,38 @@ def git(context, event) -> dict:
                 return show_working(at)
             return show_commit(context.session, at, commits[row])
 
+        if at.level == "refs":
+            if row >= len(at.refs):
+                return respond()
+            return show(context, _options.get(context.session), at.refs[row][1])
+
         if at.level in ("commit", "working"):
             if row >= len(at.files):
                 return respond()
             status, path = at.files[row]
             return show_file(at, status, path)
 
+        return respond()
+
+    if event.kind == "mark" and at is not None:
+        # The secondary press sends the panel beside this one *into* the
+        # commit. A commander already has two sides; the point of a tree at a
+        # revision is having it next to the tree as it is now.
+        row = event.row
+        if at.level == "refs" and row is not None and 0 <= row < len(at.refs):
+            name = at.refs[row][1]
+            return respond(
+                actions=[navigate(tree_url(at.root, name))],
+                status="%s — opened beside this one" % name,
+            )
+
+        if at.level == "log" and row is not None and row >= 0:
+            commits = _log_cache.get(context.session) or []
+            if row < len(commits) and commits[row].hash not in ("", WORKING):
+                return respond(
+                    actions=[navigate(tree_url(at.root, commits[row].hash))],
+                    status="%s — opened beside this one" % commits[row].short,
+                )
         return respond()
 
     if event.kind == "step" and at is not None:
@@ -628,6 +894,20 @@ def git(context, event) -> dict:
         options = _options.get(context.session, dict(plugin.settings))
         if event.id == "refresh":
             return show(context, options)
+        if event.id == "refs":
+            if at is None:
+                return respond()
+            return show_refs(at)
+        if event.id == "browse":
+            # Whatever level is open decides which commit that is: the one
+            # being looked at, or the tip when the whole log is.
+            if at is None:
+                return respond()
+            ref = at.hash if at.hash and at.hash != WORKING else "HEAD"
+            return respond(
+                actions=[navigate(tree_url(at.root, ref))],
+                status="%s — opened beside this one" % (at.short or ref),
+            )
         if event.id and event.id.startswith("toggle."):
             key = event.id.split(".", 1)[1]
             options = dict(options)
