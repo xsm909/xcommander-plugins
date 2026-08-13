@@ -348,6 +348,22 @@ def content_of(commits: List[Commit], graph: bool) -> dict:
     return table(columns_of(graph), rows_of(commits, graph))
 
 
+#: What each setting is when nothing has said otherwise. The same numbers the
+#: manifest declares, kept here as well because a toggle has to know what it is
+#: toggling *from*: `not options.get(key)` reads a missing key as "off" and
+#: turns a switch that is already on... on again.
+_DEFAULTS: Dict[str, object] = {
+    "commits": 200,
+    "allBranches": False,
+    "graph": True,
+    "sidebar": True,
+}
+
+
+def setting(options: Dict[str, object], key: str) -> object:
+    return options.get(key, _DEFAULTS.get(key))
+
+
 def menus_of(options: Dict[str, object]) -> List[dict]:
     return [
         {
@@ -359,7 +375,7 @@ def menus_of(options: Dict[str, object]) -> List[dict]:
                 {
                     "id": "toggle.sidebar",
                     "label": "Branches, tags and remotes down the side",
-                    "checked": bool(options.get("sidebar", True)),
+                    "checked": bool(setting(options, "sidebar")),
                 },
                 {"id": "checkout", "label": "Switch to the branch being shown"},
                 {
@@ -370,12 +386,12 @@ def menus_of(options: Dict[str, object]) -> List[dict]:
                 {
                     "id": "toggle.allBranches",
                     "label": "Every branch, not only this one",
-                    "checked": bool(options.get("allBranches", False)),
+                    "checked": bool(setting(options, "allBranches")),
                 },
                 {
                     "id": "toggle.graph",
                     "label": "Draw the shape of the history",
-                    "checked": bool(options.get("graph", True)),
+                    "checked": bool(setting(options, "graph")),
                 },
             ],
         },
@@ -935,11 +951,11 @@ def show(context, options: Optional[Dict[str, object]] = None,
     at = Where(root, showing, name)
     _at[context.session] = at
 
-    graph = bool(options.get("graph", True))
+    graph = bool(setting(options, "graph"))
     commits = log_of(
         root,
-        int(options.get("commits", 200) or 200),
-        bool(options.get("allBranches", False)),
+        int(setting(options, "commits") or 200),
+        bool(setting(options, "allBranches")),
         graph,
         ref or "HEAD",
     )
@@ -968,7 +984,7 @@ def show(context, options: Optional[Dict[str, object]] = None,
         )
 
     at.refs = refs_of(root)
-    at.sidebar = bool(options.get("sidebar", True))
+    at.sidebar = bool(setting(options, "sidebar"))
     _log_cache[context.session] = commits
     if commits:
         select_commit(at, commits[0])
@@ -999,7 +1015,7 @@ def redraw(session: str, at: Where) -> dict:
     options = _options.get(session, dict(plugin.settings))
     commits = _log_cache.get(session) or []
     return respond(
-        content=page_of(at, commits, bool(options.get("graph", True))),
+        content=page_of(at, commits, bool(setting(options, "graph"))),
         status=_detail_title(at),
     )
 
@@ -1201,7 +1217,7 @@ def git(context, event) -> dict:
         if event.id and event.id.startswith("toggle."):
             key = event.id.split(".", 1)[1]
             options = dict(options)
-            options[key] = not bool(options.get(key))
+            options[key] = not bool(setting(options, key))
             return show(context, options)
 
     return respond()
