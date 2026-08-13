@@ -129,10 +129,11 @@ class Commit:
     """
 
     __slots__ = ("hash", "short", "author", "date", "subject", "parents",
-                 "refs", "local")
+                 "refs", "email", "local")
 
     def __init__(self, hash: str, short: str, author: str, date: str,
-                 subject: str, parents: List[str], refs: List[Tuple[str, str]]) -> None:
+                 subject: str, parents: List[str], refs: List[Tuple[str, str]],
+                 email: str = "") -> None:
         self.hash = hash
         self.short = short
         self.author = author
@@ -144,6 +145,9 @@ class Commit:
         #: What points at this commit: `(kind, name)`, kind being `head`,
         #: `branch`, `remote` or `tag`.
         self.refs = refs
+        #: The author's address. Handed to the host **only** when the user has
+        #: asked for pictures — sending it is asking for one to be fetched.
+        self.email = email
         #: True when no remote has it yet — the thing a log is read for as
         #: often as not.
         self.local = False
@@ -195,7 +199,7 @@ def log_of(root: str, count: int, all_branches: bool, graph: bool,
     say so: a fork whose other side is one commit past the end looks exactly
     like no fork at all, and silently is the one way it must not look.
     """
-    fields = FS.join(["%H", "%h", "%an", "%ad", "%s", "%P", "%D"])
+    fields = FS.join(["%H", "%h", "%an", "%ad", "%s", "%P", "%D", "%ae"])
     body = run(
         root,
         "log",
@@ -214,7 +218,7 @@ def log_of(root: str, count: int, all_branches: bool, graph: bool,
     rows: List[Commit] = []
     for line in body.splitlines():
         parts = line.split(FS)
-        if len(parts) < 7:
+        if len(parts) < 8:
             continue
         rows.append(
             Commit(
@@ -225,6 +229,7 @@ def log_of(root: str, count: int, all_branches: bool, graph: bool,
                 parts[4],
                 parts[5].split(),
                 _refs_on(parts[6]),
+                parts[7],
             )
         )
 
@@ -305,7 +310,8 @@ def columns_of(graph: bool) -> List[dict]:
     ]
 
 
-def rows_of(commits: List[Commit], graph: bool) -> List[dict]:
+def rows_of(commits: List[Commit], graph: bool,
+            avatars: bool = False) -> List[dict]:
     """One row per commit, with the braid beside it if it is wanted.
 
     The lanes come from the parents, which is the only thing that knows the
@@ -336,7 +342,7 @@ def rows_of(commits: List[Commit], graph: bool) -> List[dict]:
                 commit.subject,
                 chips=[chip(name, kind) for kind, name in commit.refs],
             ),
-            commit.author,
+            cell(commit.author, email=commit.email if avatars else None),
             commit.date,
         ]
         if graph:
@@ -360,8 +366,9 @@ def rows_of(commits: List[Commit], graph: bool) -> List[dict]:
     return rows
 
 
-def content_of(commits: List[Commit], graph: bool) -> dict:
-    return table(columns_of(graph), rows_of(commits, graph))
+def content_of(commits: List[Commit], graph: bool,
+               avatars: bool = False) -> dict:
+    return table(columns_of(graph), rows_of(commits, graph, avatars))
 
 
 #: What each setting is when nothing has said otherwise. The same numbers the
@@ -378,6 +385,10 @@ _DEFAULTS: Dict[str, object] = {
     "allBranches": True,
     "graph": True,
     "sidebar": False,
+    # Off, and it is the switch that makes the rule true rather than an
+    # exception to it: a picture of somebody lives on a server, so nothing is
+    # fetched until somebody has said they want that.
+    "avatars": False,
 }
 
 
@@ -771,7 +782,7 @@ class Where:
 
     __slots__ = ("root", "branch", "name", "hash", "short", "subject",
                  "author", "files", "file", "diff", "shown", "refs", "rows",
-                 "sidebar")
+                 "sidebar", "avatars")
 
     def __init__(self, root: str, branch: str, name: str) -> None:
         self.root = root
@@ -798,6 +809,9 @@ class Where:
         #: pill in the bar says which branch and opens the rest, and the room
         #: goes to the log.
         self.sidebar = False
+        #: Whether the author's address is handed over, which is what asks the
+        #: host to go and find their picture.
+        self.avatars = False
 
 
 #: What each open copy is looking at.
@@ -954,7 +968,7 @@ def page_of(at: Where, commits: List[Commit], graph: bool) -> dict:
     """
     history = split(
         [
-            part("log", content_of(commits, graph), weight=3),
+            part("log", content_of(commits, graph, at.avatars), weight=3),
             part("detail", _detail_content(at), weight=2,
                  title=_detail_title(at)),
         ]
@@ -1135,6 +1149,7 @@ def show(context, options: Optional[Dict[str, object]] = None,
 
     at.refs = refs_of(root)
     at.sidebar = bool(setting(options, "sidebar"))
+    at.avatars = bool(setting(options, "avatars"))
     _log_cache[context.session] = commits
     if commits:
         select_commit(at, commits[0])

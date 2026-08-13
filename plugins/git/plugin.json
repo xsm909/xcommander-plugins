@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.git",
   "name": "Git",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "The repository the panel is standing in, on one page: its branches, its log with the shape of the history drawn, what each commit touched and the difference itself.",
   "category": "Tools",
   "author": "xcommander",
@@ -63,6 +63,13 @@
       "type": "boolean",
       "default": true,
       "note": "The lines down the left that say what came from where: a lane per line of development, a ring on a merge. With it on the log is ordered by its own shape rather than by date, because a parent has to be below its children for the lines to hold. Turn it off for a plain list, newest first."
+    },
+    {
+      "key": "avatars",
+      "label": "Show pictures of the people",
+      "type": "boolean",
+      "default": false,
+      "note": "Off, and then nothing here touches the network. On, the application looks each author up at gravatar.com by the address in the commit and keeps what it finds on your disk. A row never waits for it: the ring shows initials until a picture arrives, and goes on showing them for anybody who has none."
     }
   ],
   "schemes": [
