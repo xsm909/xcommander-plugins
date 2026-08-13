@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.git",
   "name": "Git",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "The repository the panel is standing in, on one page: its branches, its log with the shape of the history drawn, what each commit touched and the difference itself.",
   "category": "Tools",
   "author": "xcommander",
@@ -44,10 +44,10 @@
     },
     {
       "key": "sidebar",
-      "label": "Branches, tags and remotes down the side",
+      "label": "Branches down the side as well",
       "type": "boolean",
-      "default": true,
-      "note": "What there is to look at, standing beside the log rather than instead of it. A list you go to a page for is a list you stop glancing at."
+      "default": false,
+      "note": "The pill in the bar already says which branch you are on and opens the rest. This puts the whole list down the side too, which is a fifth of the window spent on something you glance at."
     },
     {
       "key": "allBranches",

@@ -53,6 +53,7 @@ from xcommander import (
     respond,
     row,
     split,
+    tab,
     table,
     text,
 )
@@ -370,7 +371,7 @@ _DEFAULTS: Dict[str, object] = {
     # braid is drawn for.
     "allBranches": True,
     "graph": True,
-    "sidebar": True,
+    "sidebar": False,
 }
 
 
@@ -414,15 +415,24 @@ def menus_of(options: Dict[str, object]) -> List[dict]:
 
 # -- one commit ----------------------------------------------------------------
 
-#: What `git show --name-status` puts in front of a path, in words.
+#: What `git show --name-status` puts in front of a path, as a mark the host
+#: knows how to draw. The word travels with it for the tooltip: a glyph nobody
+#: can ask the meaning of is a glyph to be guessed at.
 _STATUS = {
-    "A": "added",
-    "M": "changed",
-    "D": "deleted",
-    "R": "renamed",
-    "C": "copied",
-    "T": "kind changed",
+    "A": ("added", "added"),
+    "M": ("changed", "changed"),
+    "D": ("deleted", "deleted"),
+    "R": ("renamed", "renamed"),
+    "C": ("copied", "copied"),
+    "T": ("changed", "kind changed"),
+    "U": ("conflict", "conflicted"),
 }
+
+
+def _mark(status: str) -> dict:
+    """One `name-status` letter as a cell the host draws as a mark."""
+    icon, word = _STATUS.get(status, ("changed", status))
+    return cell(word, icon=icon)
 
 
 def files_of(root: str, hash: str) -> List[Tuple[str, str]]:
@@ -725,7 +735,8 @@ class Where:
     """
 
     __slots__ = ("root", "branch", "name", "hash", "short", "subject",
-                 "author", "files", "file", "diff", "refs", "rows", "sidebar")
+                 "author", "files", "file", "diff", "refs", "rows", "sidebar",
+                 "tab", "inner", "entries", "tree_rows")
 
     def __init__(self, root: str, branch: str, name: str) -> None:
         self.root = root
@@ -745,8 +756,17 @@ class Where:
         self.refs: List[Tuple[str, str, str, str]] = []
         #: What each row of the sidebar stands for, or None for a heading.
         self.rows: List[Optional[str]] = []
-        #: Whether the sidebar is up. Fork's is, and it is his to turn off.
-        self.sidebar = True
+        #: Whether the list of branches stands down the side as well. Off: the
+        #: pill in the bar says which branch and opens the rest, and the room
+        #: goes to the log.
+        self.sidebar = False
+        #: Which way the bottom half is being looked at.
+        self.tab = COMMIT
+        #: Where in the tree at that revision, for the File Tree tab.
+        self.inner = ""
+        self.entries: List[Tuple[bool, str, str]] = []
+        #: What each row of the tree stands for: `(is a folder, name)`.
+        self.tree_rows: List[Tuple[bool, str]] = []
 
 
 #: What each open copy is looking at.
@@ -767,12 +787,24 @@ def _files_content(at: Where) -> dict:
     """What the commit under the cursor touched."""
     if at.hash == WORKING:
         return table(
-            [column("", width=150), column("File", flex=1)],
             [
-                # Staged is the one state worth a mark of its own: it is what
-                # the next commit will be made of.
+                # Two marks, because a file has two states at once: what the
+                # index has that HEAD does not, and what the disk has that the
+                # index does not. One column saying both in words was a
+                # sentence per row.
+                column("", kind="icon"),
+                column("", kind="icon"),
+                column("File", flex=1),
+            ],
+            [
                 row(
-                    [_worktree_state(status[0], (status + "  ")[1]), path],
+                    [
+                        _staged_mark(status[0]),
+                        _mark_of(status[0], (status + "  ")[1]),
+                        path,
+                    ],
+                    # Staged is the one state worth saying twice: it is what
+                    # the next commit will be made of.
                     role="accent" if status[0] not in (" ", "?") else "normal",
                 )
                 for status, path in at.files
@@ -780,8 +812,8 @@ def _files_content(at: Where) -> dict:
         )
 
     return table(
-        [column("", width=96), column("File", flex=1)],
-        [row([_STATUS.get(status, status), path]) for status, path in at.files],
+        [column("", kind="icon"), column("File", flex=1)],
+        [row([_mark(status), path]) for status, path in at.files],
     )
 
 
@@ -803,6 +835,39 @@ def _detail_title(at: Where) -> str:
 
 #: What each shelf of the sidebar is called, in the order Fork stands them in.
 _SHELVES = [("branch", "Branches"), ("remote", "Remotes"), ("tag", "Tags")]
+
+
+def branch_pill(at: Where) -> dict:
+    """The branch you are on, and the way to any other — in one button.
+
+    **The panel's own drive button, in the tool's bar.** A list of branches
+    down the side of the window says the same thing and spends a fifth of the
+    window saying it, which is a poor trade in a tool whose point is the log.
+    Pressing a row raises `button` with the ref's own name, which is all the
+    plugin needs to answer it.
+    """
+    items: List[dict] = []
+    for kind, heading in _SHELVES:
+        on_shelf = [ref for ref in at.refs if ref[0] == kind]
+        if not on_shelf:
+            continue
+        if items:
+            items.append({})
+        items.append({"label": heading})
+        for _, name, _, _ in on_shelf:
+            items.append({
+                "id": "ref." + name,
+                "label": name,
+                "checked": name == at.branch,
+            })
+
+    return {
+        "id": "refs",
+        "label": at.branch or "no branch",
+        "tooltip": "%s — the branch being shown, and the way to another"
+        % (at.branch or "detached"),
+        "items": items,
+    }
 
 
 def sidebar_of(at: Where) -> dict:
@@ -847,6 +912,89 @@ def sidebar_of(at: Where) -> dict:
     return table([column("", flex=1)], rows)
 
 
+#: The three ways of looking at what is under the log's cursor, and Fork's own
+#: names for them.
+COMMIT, CHANGES, TREE = "tab.commit", "tab.changes", "tab.tree"
+
+_TAB_LABELS = [(COMMIT, "Commit"), (CHANGES, "Changes"), (TREE, "File Tree")]
+
+#: The row that goes back up a level in the tree, as everywhere else here.
+UP = ".."
+
+
+def tree_at(root: str, ref: str, inner: str) -> List[Tuple[bool, str, str]]:
+    """One folder of the tree at a revision: `(is a folder, name, size)`.
+
+    Straight from `ls-tree`, which is git's own answer to "what is in this
+    directory at that revision" and costs one call however deep it is.
+    """
+    body = run(root, "ls-tree", "--long", "%s:%s" % (ref, inner))
+    if body is None:
+        return []
+
+    entries: List[Tuple[bool, str, str]] = []
+    for line in body.splitlines():
+        if "\t" not in line:
+            continue
+        head, name = line.split("\t", 1)
+        parts = head.split()
+        if len(parts) < 3:
+            continue
+        size = parts[3] if len(parts) >= 4 and parts[3].isdigit() else ""
+        entries.append((parts[1] in ("tree", "commit"), name.strip('"'), size))
+
+    # Folders first and then by name, which is what a panel does and what the
+    # eye expects of anything shaped like one.
+    entries.sort(key=lambda e: (not e[0], e[1].lower()))
+    return entries
+
+
+def _tree_content(at: Where) -> dict:
+    """The tree at the selected commit, as a listing you can walk."""
+    rows: List[dict] = []
+    at.tree_rows = []
+
+    if at.inner:
+        rows.append(row([cell(UP, icon="folder"), ""], role="strong"))
+        at.tree_rows.append((True, UP))
+
+    for is_folder, name, size in at.entries:
+        rows.append(
+            row([
+                cell(name, icon="folder" if is_folder else "text"),
+                "" if is_folder else _bytes(size),
+            ])
+        )
+        at.tree_rows.append((is_folder, name))
+
+    if not rows:
+        return text("Nothing here at %s." % at.short)
+    return table(
+        [column("Name", flex=1), column("Size", width=88, align="right")],
+        rows,
+    )
+
+
+def _bytes(size: str) -> str:
+    """A size the way a panel writes one."""
+    try:
+        value = float(size)
+    except ValueError:
+        return ""
+    for unit in ("B", "kB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            return "%d %s" % (value, unit) if unit == "B" else "%.1f %s" % (value, unit)
+        value /= 1024
+    return size
+
+
+def select_folder(at: Where, inner: str) -> None:
+    """Walks the tree to a folder and reads it."""
+    at.inner = inner.strip("/")
+    ref = at.hash if at.hash and at.hash != WORKING else "HEAD"
+    at.entries = tree_at(at.root, ref, at.inner)
+
+
 def page_of(at: Where, commits: List[Commit], graph: bool) -> dict:
     """The whole page: the log, and underneath it what the cursor is on.
 
@@ -854,35 +1002,17 @@ def page_of(at: Where, commits: List[Commit], graph: bool) -> dict:
     means looking at a commit *without losing the list it is in*, and knowing
     what branches there are without going to look for them.
     """
-    if not at.hash:
-        detail: dict = text(
-            "Move down the log and what each commit touched shows here."
-        )
-    elif not at.files:
-        detail = text(
-            "Nothing has changed since the last commit."
-            if at.hash == WORKING
-            else "This commit changed nothing on its own. A merge usually has "
-            "not: what came with it belongs to the commits it joined."
-        )
-    else:
-        detail = split(
-            [
-                part("files", _files_content(at), weight=2),
-                part(
-                    "diff",
-                    text(at.diff or "Nothing to show for this file.",
-                         language="diff"),
-                    weight=3,
-                ),
-            ],
-            "horizontal",
-        )
-
     history = split(
         [
             part("log", content_of(commits, graph), weight=3),
-            part("detail", detail, weight=2, title=_detail_title(at)),
+            part(
+                "detail",
+                _detail_content(at),
+                weight=2,
+                title=_detail_title(at),
+                tabs=_tabs_of(at),
+                showing=at.tab,
+            ),
         ]
     )
     if not at.sidebar:
@@ -892,6 +1022,49 @@ def page_of(at: Where, commits: List[Commit], graph: bool) -> dict:
         [
             part("refs", sidebar_of(at), weight=1, title=at.name),
             part("history", history, weight=4),
+        ],
+        "horizontal",
+    )
+
+
+def _tabs_of(at: Where) -> List[dict]:
+    """The three ways of looking at it, with what each is worth on the label."""
+    counts = {
+        COMMIT: str(len(at.files)) if at.hash and at.hash != WORKING else None,
+        CHANGES: str(len(at.files)) if at.hash == WORKING else None,
+        TREE: str(len(at.entries)) if at.tab == TREE else None,
+    }
+    return [tab(id, label, counts.get(id)) for id, label in _TAB_LABELS]
+
+
+def _detail_content(at: Where) -> dict:
+    """Whatever the tab that is up says to show."""
+    if not at.hash:
+        return text("Move down the log and what each commit touched shows here.")
+
+    if at.tab == TREE:
+        return _tree_content(at)
+
+    # Commit and Changes are the same two panes over different questions —
+    # what one commit did, or what the working tree has not committed — and
+    # keeping them one shape is why pressing between them is not a jolt.
+    if not at.files:
+        return text(
+            "Nothing has changed since the last commit."
+            if at.hash == WORKING
+            else "This commit changed nothing on its own. A merge usually has "
+            "not: what came with it belongs to the commits it joined."
+        )
+
+    return split(
+        [
+            part("files", _files_content(at), weight=2),
+            part(
+                "diff",
+                text(at.diff or "Nothing to show for this file.",
+                     language="diff"),
+                weight=3,
+            ),
         ],
         "horizontal",
     )
@@ -917,6 +1090,14 @@ def select_commit(at: Where, commit: Commit) -> None:
     at.diff = ""
     if at.files:
         select_file(at, 0)
+
+    # The working tree is what Changes *is*, and a commit is what Commit is.
+    # Walking from one to the other and finding the wrong tab up would be the
+    # tab arguing with the row that was pressed.
+    if at.tab != TREE:
+        at.tab = CHANGES if commit.hash == WORKING else COMMIT
+    else:
+        select_folder(at, "")
 
 
 def select_file(at: Where, index: int) -> None:
@@ -1019,7 +1200,10 @@ def show(context, options: Optional[Dict[str, object]] = None,
             ", the newest %d — there are more" % asked if more else "",
         ),
         menus=menus_of(options),
-        commands=[{"id": "refresh", "label": "Read it again", "icon": "refresh"}],
+        commands=[
+            branch_pill(at),
+            {"id": "refresh", "label": "Read it again", "icon": "refresh"},
+        ],
     )
 
 
@@ -1038,25 +1222,26 @@ def redraw(session: str, at: Where) -> dict:
     )
 
 
-def _worktree_state(index: str, tree: str) -> str:
-    """The two columns of `status --porcelain` said out loud.
+def _staged_mark(index: str) -> dict:
+    """The first column of `status --porcelain`: is it in the next commit?"""
+    if index in (" ", "?"):
+        return cell("")
+    return cell("staged: %s" % _STATUS.get(index, ("changed", index))[1],
+                icon="staged")
 
-    Both sides are named when both have something to say: a file can be staged
-    and then changed again, and "staged, changed since" is the one state a
-    person has to be told about rather than left to work out from two letters.
+
+def _mark_of(index: str, tree: str) -> dict:
+    """The second: what the disk has that the index does not.
+
+    Both marks are drawn when both have something to say. A file can be staged
+    and then changed again, and that is the one state a person has to be told
+    about rather than left to work out from two letters.
     """
     if index == "?" or tree == "?":
-        return "untracked"
-
-    words = []
-    if index != " ":
-        words.append("staged: %s" % _STATUS.get(index, index))
-    if tree != " ":
-        words.append(
-            "%s%s" % ("changed since" if words else "", "" if words else
-                      _STATUS.get(tree, tree))
-        )
-    return ", ".join(word for word in words if word)
+        return cell("never added", icon="untracked")
+    if tree == " ":
+        return cell("")
+    return _mark(tree)
 
 
 @plugin.view(VIEW_ID, "Git", "The log of the repository this folder is in.")
@@ -1099,6 +1284,20 @@ def git(context, event) -> dict:
             if at_row >= len(at.files) or at_row == at.file:
                 return respond()
             select_file(at, at_row)
+            return redraw(context.session, at)
+
+        # The tree walks in place. A folder is a place to go into, and the
+        # cursor merely passing over one is not a request to go.
+        if event.part == "detail" and at.tab == TREE:
+            if event.kind != "activate" or at_row >= len(at.tree_rows):
+                return respond()
+            is_folder, name = at.tree_rows[at_row]
+            if not is_folder:
+                return respond()
+            if name == UP:
+                select_folder(at, at.inner.rpartition("/")[0])
+            else:
+                select_folder(at, "%s/%s" % (at.inner, name) if at.inner else name)
             return redraw(context.session, at)
 
         return respond()
@@ -1167,6 +1366,18 @@ def git(context, event) -> dict:
                 actions=[ask(kind, title, "In %s." % at.name, confirm=confirm)]
             )
 
+        if (event.part == "detail" and at.tab == TREE
+                and at_row is not None and 0 <= at_row < len(at.tree_rows)):
+            is_folder, name = at.tree_rows[at_row]
+            if name == UP:
+                return respond()
+            ref = at.hash if at.hash and at.hash != WORKING else "HEAD"
+            inner = "%s/%s" % (at.inner, name) if at.inner else name
+            return respond(
+                actions=[navigate(tree_url(at.root, ref, inner if is_folder else at.inner))],
+                status="%s — opened beside this one" % (inner if is_folder else at.inner or "/"),
+            )
+
         if event.part == "log" and at_row is not None and at_row >= 0:
             commits = _log_cache.get(context.session) or []
             if at_row < len(commits) and commits[at_row].hash != WORKING:
@@ -1186,6 +1397,27 @@ def git(context, event) -> dict:
         options = _options.get(context.session, dict(plugin.settings))
         if event.id == "refresh":
             return show(context, options)
+
+        # A ref picked out of the pill. Its own name rides on the id, so
+        # nothing has to be remembered between the menu opening and a row of
+        # it being chosen.
+        if event.id and event.id.startswith("ref."):
+            if at is None:
+                return respond()
+            return show(context, options, event.id[len("ref."):])
+
+        if event.id in (COMMIT, CHANGES, TREE):
+            if at is None:
+                return respond()
+            at.tab = event.id
+            if event.id == TREE:
+                select_folder(at, "")
+            elif event.id == CHANGES and at.hash != WORKING:
+                # Changes is about the working tree whatever the log's cursor
+                # is on: pressing it is asking for that, not for the commit.
+                select_commit(at, Commit(WORKING, "", "", "", "", [], []))
+                at.tab = CHANGES
+            return redraw(context.session, at)
 
         if event.id == "checkout":
             if at is None:
