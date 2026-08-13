@@ -47,6 +47,7 @@ from xcommander import (
     lay_out,
     Plugin,
     RpcError,
+    file,
     navigate,
     notice,
     part,
@@ -576,6 +577,35 @@ def message_of(root: str, hash: str) -> str:
     return (run(root, "show", "-s", "--pretty=format:%s", hash) or "").strip()
 
 
+def is_binary(root: str, hash: str, path: str) -> bool:
+    """Whether git calls this change binary — its own answer, not a guess.
+
+    `--numstat` counts the lines added and removed, and prints `-` for both
+    when there are no lines to count. That is git saying "there is no diff of
+    this to show", which is exactly the question being asked; guessing from the
+    name would be wrong for a `.txt` full of NULs and for a `.dat` full of
+    words.
+    """
+    body = run(root, "show", "--numstat", "--pretty=format:", hash, "--", path)
+    for line in (body or "").splitlines():
+        fields = line.split("\t")
+        if len(fields) >= 3:
+            return fields[0] == "-" and fields[1] == "-"
+    return False
+
+
+def worktree_is_binary(root: str, path: str) -> bool:
+    """The same question about the working tree."""
+    for args in (["diff", "--numstat", "--", path],
+                 ["diff", "--numstat", "--cached", "--", path]):
+        body = run(root, *args)
+        for line in (body or "").splitlines():
+            fields = line.split("\t")
+            if len(fields) >= 3:
+                return fields[0] == "-" and fields[1] == "-"
+    return False
+
+
 def diff_of(root: str, hash: str, path: str) -> str:
     """One file's difference in one commit, as git prints it."""
     body = run(
@@ -737,7 +767,8 @@ class Where:
     """
 
     __slots__ = ("root", "branch", "name", "hash", "short", "subject",
-                 "author", "files", "file", "diff", "refs", "rows", "sidebar")
+                 "author", "files", "file", "diff", "shown", "refs", "rows",
+                 "sidebar")
 
     def __init__(self, root: str, branch: str, name: str) -> None:
         self.root = root
@@ -753,6 +784,9 @@ class Where:
         #: Which of them the difference below is of.
         self.file = -1
         self.diff = ""
+        #: A file to be *shown* rather than described — a picture, anything git
+        #: has no diff for. Empty when the difference is words.
+        self.shown = ""
         #: The branches, tags and remotes as last listed.
         self.refs: List[Tuple[str, str, str, str]] = []
         #: What each row of the sidebar stands for, or None for a heading.
@@ -958,8 +992,9 @@ def _detail_content(at: Where) -> dict:
             part("files", _files_content(at), weight=2),
             part(
                 "diff",
-                text(at.diff or "Nothing to show for this file.",
-                     language="diff"),
+                file(at.shown) if at.shown
+                else text(at.diff or "Nothing to show for this file.",
+                          language="diff"),
                 weight=3,
             ),
         ],
@@ -985,20 +1020,44 @@ def select_commit(at: Where, commit: Commit) -> None:
 
     at.file = -1
     at.diff = ""
+    at.shown = ""
     if at.files:
         select_file(at, 0)
 
 
 def select_file(at: Where, index: int) -> None:
-    """Points the difference at one of the files, and reads it."""
+    """Points the difference at one of the files, and reads it.
+
+    **A picture is shown rather than described.** git has no diff for a binary
+    file and says so; where it says so, this points the host at the file itself
+    and lets whatever claims that extension draw it. The plugin never learns
+    what a PNG is, and the day a better image viewer is installed this shows
+    that one.
+    """
     if index < 0 or index >= len(at.files):
         return
     at.file = index
+    at.shown = ""
     status, path = at.files[index]
+
     if at.hash == WORKING:
+        if worktree_is_binary(at.root, path):
+            # On the disk, which is the version being looked at.
+            at.diff = ""
+            at.shown = "file://" + quote(os.path.join(at.root, path))
+            return
         at.diff = worktree_diff(at.root, status[0], (status + "  ")[1], path)
-    else:
-        at.diff = diff_of(at.root, at.hash, path)
+        return
+
+    if is_binary(at.root, at.hash, path):
+        # As it was at that commit, not as it is now — the whole reason for
+        # looking at a commit at all. A file the commit *deleted* has no such
+        # version, and git says nothing for it either.
+        at.diff = ""
+        at.shown = "" if status == "D" else tree_url(at.root, at.hash, path)
+        return
+
+    at.diff = diff_of(at.root, at.hash, path)
 
 
 def show(context, options: Optional[Dict[str, object]] = None,
