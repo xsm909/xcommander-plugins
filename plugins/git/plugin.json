@@ -1,8 +1,8 @@
 {
   "id": "org.xcommander.git",
   "name": "Git",
-  "version": "0.2.0",
-  "description": "The repository the panel is standing in: its log, what is not pushed yet, what each commit touched and how.",
+  "version": "0.3.0",
+  "description": "The repository the panel is standing in: its log, its working tree, what is not pushed yet, and what each commit touched.",
   "category": "Tools",
   "author": "xcommander",
   "homepage": "https://github.com/xsm909/xcommander-plugins",

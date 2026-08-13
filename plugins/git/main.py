@@ -298,6 +298,54 @@ def files_of(root: str, hash: str) -> List[Tuple[str, str]]:
     return files
 
 
+#: The row that stands for the working tree, at the head of the log. Not a
+#: commit and deliberately shaped like one: it is where the eye goes first, and
+#: it is what Git Extensions puts there.
+WORKING = "working"
+
+
+def working_tree(root: str) -> List[Tuple[str, str, str]]:
+    """What is changed and what is staged: `(index, tree, path)`.
+
+    Straight from `status --porcelain`, whose two columns are exactly that
+    question: what the index has that HEAD does not, and what the disk has that
+    the index does not. `??` in both is a file git has never been told about.
+    """
+    body = run(root, "status", "--porcelain")
+    if not body:
+        return []
+
+    changes: List[Tuple[str, str, str]] = []
+    for line in body.splitlines():
+        if len(line) < 4:
+            continue
+        # A rename reads `R  old -> new`; where it ended up is what matters.
+        path = line[3:]
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        changes.append((line[0], line[1], path.strip('"')))
+    return changes
+
+
+def worktree_diff(root: str, index: str, tree: str, path: str) -> str:
+    """One file's difference, from whichever side of it has changed."""
+    if index == "?" or tree == "?":
+        # Never seen by git, so there is nothing to compare it against — but
+        # what is in it is exactly what would be added.
+        body = run(root, "diff", "--no-color", "--no-index", os.devnull, path)
+        return (body or "").lstrip("\n")
+
+    if tree != " ":
+        # Changed on the disk since it was staged, which is the difference the
+        # user is looking at while they work.
+        body = run(root, "diff", "--no-color", "--", path)
+        if body and body.strip():
+            return body.lstrip("\n")
+
+    body = run(root, "diff", "--no-color", "--cached", "--", path)
+    return (body or "").lstrip("\n")
+
+
 def message_of(root: str, hash: str) -> str:
     return (run(root, "show", "-s", "--pretty=format:%s", hash) or "").strip()
 
@@ -390,6 +438,25 @@ def show(context, options: Optional[Dict[str, object]] = None) -> dict:
     for commit in commits:
         commit.local = bool(commit.hash) and commit.hash in local
 
+    # The working tree at the head of the log, where Git Extensions puts it and
+    # where the eye goes first. Only when there is something in it: a row that
+    # says "nothing has changed" is a row that has to be read to learn nothing.
+    changes = working_tree(root)
+    if changes:
+        staged = sum(1 for index, _, _ in changes if index not in (" ", "?"))
+        commits.insert(
+            0,
+            Commit(
+                WORKING,
+                "",
+                "",
+                "",
+                "Working tree — %d changed%s"
+                % (len(changes), ", %d staged" % staged if staged else ""),
+                "",
+            ),
+        )
+
     _log_cache[context.session] = commits
     count = sum(1 for commit in commits if commit.local)
 
@@ -445,18 +512,73 @@ def show_commit(session: str, at: Where, commit: Commit) -> dict:
     )
 
 
+def show_working(at: Where) -> dict:
+    """What is changed and what is staged, right now."""
+    at.level = "working"
+    at.hash = WORKING
+    at.short = "working tree"
+    at.subject = ""
+    changes = working_tree(at.root)
+    at.files = [(index + tree, path) for index, tree, path in changes]
+
+    if not changes:
+        return respond(
+            content=text("Nothing has changed since the last commit."),
+            trail=[at.name, at.branch, at.short],
+            status="clean",
+        )
+
+    staged = sum(1 for index, _, _ in changes if index not in (" ", "?"))
+    return respond(
+        content=table(
+            ["", "File"],
+            [[_worktree_state(index, tree), path] for index, tree, path in changes],
+        ),
+        trail=[at.name, at.branch, at.short],
+        status="%d changed%s"
+        % (len(changes), ", %d staged" % staged if staged else ""),
+    )
+
+
+def _worktree_state(index: str, tree: str) -> str:
+    """The two columns of `status --porcelain` said out loud.
+
+    Both sides are named when both have something to say: a file can be staged
+    and then changed again, and "staged, changed since" is the one state a
+    person has to be told about rather than left to work out from two letters.
+    """
+    if index == "?" or tree == "?":
+        return "untracked"
+
+    words = []
+    if index != " ":
+        words.append("staged: %s" % _STATUS.get(index, index))
+    if tree != " ":
+        words.append(
+            "%s%s" % ("changed since" if words else "", "" if words else
+                      _STATUS.get(tree, tree))
+        )
+    return ", ".join(word for word in words if word)
+
+
 def show_file(at: Where, status: str, path: str) -> dict:
-    """One file's difference in that commit."""
+    """One file's difference — in a commit, or against what is committed."""
     at.level = "file"
-    body = diff_of(at.root, at.hash, path)
+
+    if at.hash == WORKING:
+        body = worktree_diff(at.root, status[0], status[1:2] or " ", path)
+        where = "in the working tree"
+    else:
+        body = diff_of(at.root, at.hash, path)
+        where = "in %s" % at.short
 
     return respond(
         content=text(
-            body or "Nothing to show for this file in this commit.",
+            body or "Nothing to show for this file %s." % where,
             language="diff",
         ),
         trail=[at.name, at.branch, at.short, path],
-        status="%s — %s in %s" % (path, _STATUS.get(status, status), at.short),
+        status="%s — %s" % (path, where),
     )
 
 
@@ -477,9 +599,11 @@ def git(context, event) -> dict:
             if row >= len(commits) or not commits[row].hash:
                 # A row that is only the graph carrying on. Nothing to open.
                 return respond()
+            if commits[row].hash == WORKING:
+                return show_working(at)
             return show_commit(context.session, at, commits[row])
 
-        if at.level == "commit":
+        if at.level in ("commit", "working"):
             if row >= len(at.files):
                 return respond()
             status, path = at.files[row]
@@ -491,6 +615,8 @@ def git(context, event) -> dict:
         # The trail is the way back, level by level: the repository and the
         # branch are the log, the hash is the commit it was opened from.
         if event.row is not None and event.row >= 2 and at.level == "file":
+            if at.hash == WORKING:
+                return show_working(at)
             commits = _log_cache.get(context.session) or []
             for commit in commits:
                 if commit.hash == at.hash:

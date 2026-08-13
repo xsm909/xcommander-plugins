@@ -12,8 +12,14 @@ in a panel, and in a panel it watches the panel beside it.
 | | |
 | --- | --- |
 | the log | every commit, with git's own drawing of the shape of the history |
+| the working tree | at the head of the log when there is one: what is changed, and what of it is staged |
 | a commit | what it touched — added, changed, deleted, renamed |
 | a file | what changed in it, as a unified diff |
+
+A file that is staged and then changed again says both, because that is the one
+state somebody has to be told about rather than left to work out from two
+letters. An untracked file is shown against nothing, which is what adding it
+would look like.
 
 The trail at the top is the way back out, level by level, the same way it is in
 a panel.
