@@ -297,7 +297,10 @@ def columns_of(graph: bool) -> List[dict]:
         *([column("", kind="graph")] if graph else []),
         column("Commit", width=72, kind="mono"),
         column("Subject", flex=3),
-        column("Author", width=124),
+        # The author as a ring with their initials in it, and the name beside
+        # them. Wider than words alone need, because the ring takes its own
+        # room and a name squeezed against it reads as one word.
+        column("Author", width=140, kind="avatar"),
         column("When", width=118, align="right"),
     ]
 
