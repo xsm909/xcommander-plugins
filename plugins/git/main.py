@@ -174,7 +174,7 @@ def _refs_on(decoration: str) -> List[Tuple[str, str]]:
 
 
 def log_of(root: str, count: int, all_branches: bool, graph: bool,
-           ref: str = "HEAD") -> List[Commit]:
+           ref: str = "HEAD") -> Tuple[List[Commit], bool]:
     """The log: what each commit is, what it came from, and what points at it.
 
     One call. `%P` is what the shape is made of and `%D` is what a reader looks
@@ -189,6 +189,10 @@ def log_of(root: str, count: int, all_branches: bool, graph: bool,
     holds. `git log --graph` turns this on for itself; we draw the graph, so we
     turn it on for ourselves. Without a graph the dates are the more useful
     order and it stays off.
+
+    Answers the rows **and whether there were more**. A log that stops has to
+    say so: a fork whose other side is one commit past the end looks exactly
+    like no fork at all, and silently is the one way it must not look.
     """
     fields = FS.join(["%H", "%h", "%an", "%ad", "%s", "%P", "%D"])
     body = run(
@@ -196,12 +200,15 @@ def log_of(root: str, count: int, all_branches: bool, graph: bool,
         "log",
         *(["--topo-order"] if graph else []),
         "--all" if all_branches else ref,
-        "--max-count=%d" % count,
+        # One more than asked for, so "there are more" is a fact rather than a
+        # guess — and free, rather than a second walk of the history to count
+        # it. The extra one is dropped before anybody sees it.
+        "--max-count=%d" % (count + 1),
         "--date=format:%Y-%m-%d %H:%M",
         "--pretty=format:" + fields,
     )
     if not body:
-        return []
+        return [], False
 
     rows: List[Commit] = []
     for line in body.splitlines():
@@ -219,7 +226,9 @@ def log_of(root: str, count: int, all_branches: bool, graph: bool,
                 _refs_on(parts[6]),
             )
         )
-    return rows
+
+    more = len(rows) > count
+    return (rows[:count] if more else rows), more
 
 
 def unpushed(root: str) -> set:
@@ -353,8 +362,13 @@ def content_of(commits: List[Commit], graph: bool) -> dict:
 #: toggling *from*: `not options.get(key)` reads a missing key as "off" and
 #: turns a switch that is already on... on again.
 _DEFAULTS: Dict[str, object] = {
-    "commits": 200,
-    "allBranches": False,
+    "commits": 1000,
+    # **On, because the prototype is Fork.** A history has forks in it, and a
+    # log of one branch cannot draw one: the commit the branch left from is in
+    # it and the branch itself is not, so what was a fork comes out a straight
+    # line. Showing only the branch you are on hides exactly the thing the
+    # braid is drawn for.
+    "allBranches": True,
     "graph": True,
     "sidebar": True,
 }
@@ -952,9 +966,10 @@ def show(context, options: Optional[Dict[str, object]] = None,
     _at[context.session] = at
 
     graph = bool(setting(options, "graph"))
-    commits = log_of(
+    asked = int(setting(options, "commits") or 1000)
+    commits, more = log_of(
         root,
-        int(setting(options, "commits") or 200),
+        asked,
         bool(setting(options, "allBranches")),
         graph,
         ref or "HEAD",
@@ -994,11 +1009,14 @@ def show(context, options: Optional[Dict[str, object]] = None,
         content=page_of(at, commits, graph),
         title="Git",
         trail=[name, showing],
-        status="%s — %s%s"
+        status="%s — %s%s%s"
         % (
             showing if ref is None else "%s (looking, not checked out)" % showing,
             state,
             ", %d not pushed" % count if count else "",
+            # Never silently. A history that goes on past the end of what is
+            # drawn takes its forks with it.
+            ", the newest %d — there are more" % asked if more else "",
         ),
         menus=menus_of(options),
         commands=[{"id": "refresh", "label": "Read it again", "icon": "refresh"}],

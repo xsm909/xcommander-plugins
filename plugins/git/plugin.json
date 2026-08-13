@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.git",
   "name": "Git",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "The repository the panel is standing in, on one page: its branches, its log with the shape of the history drawn, what each commit touched and the difference itself.",
   "category": "Tools",
   "author": "xcommander",
@@ -38,9 +38,9 @@
       "key": "commits",
       "label": "Commits to read",
       "type": "integer",
-      "default": 200,
-      "hint": "200",
-      "note": "A log is walked from the tip, so this is how far back it goes. Large repositories have hundreds of thousands of commits and nobody scrolls to the beginning."
+      "default": 1000,
+      "hint": "1000",
+      "note": "A log is walked from the tip, so this is how far back it goes. The status line says when it stopped short — a fork whose other side is one commit past the end looks exactly like no fork at all."
     },
     {
       "key": "sidebar",
@@ -53,8 +53,8 @@
       "key": "allBranches",
       "label": "Every branch, not only this one",
       "type": "boolean",
-      "default": false,
-      "note": "Off shows the branch you are on. On shows the lot, which is what a graph is for and what makes it hard to read."
+      "default": true,
+      "note": "On, and it is what Fork shows. A log of one branch cannot draw a fork: the commit the branch left from is in it and the branch itself is not, so what was a fork comes out a straight line."
     },
     {
       "key": "graph",
