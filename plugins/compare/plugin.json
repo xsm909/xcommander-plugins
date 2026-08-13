@@ -1,0 +1,80 @@
+{
+  "id": "org.xcommander.compare",
+  "name": "Compare folders",
+  "version": "1.0.0",
+  "description": "What is only on one side, and what is on both but different. The two panels are the two sides.",
+  "category": "Tools",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "compare",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "views": [
+    {
+      "id": "compare.folders",
+      "title": "Compare folders",
+      "description": "The left panel against the right one.",
+      "icon": "compare",
+      "surfaces": [
+        "fullscreen",
+        "menu",
+        "titleBar"
+      ],
+      "follows": "none",
+      "keys": false
+    }
+  ],
+  "settings": [
+    {
+      "key": "recursive",
+      "label": "Walk subfolders",
+      "type": "boolean",
+      "default": true,
+      "note": "Off compares only what is in the two folders themselves."
+    },
+    {
+      "key": "same",
+      "label": "Show what matches",
+      "type": "boolean",
+      "default": false,
+      "note": "Off is what the tool is for: only the differences. On lists everything, which is worth having when you expect two folders to be identical."
+    },
+    {
+      "key": "content",
+      "label": "Compare by content",
+      "type": "boolean",
+      "default": false,
+      "note": "Reads both files and compares them byte for byte, for the pairs whose size matches. Sure, and much slower — every byte of both folders is read."
+    },
+    {
+      "key": "hidden",
+      "label": "Include hidden files",
+      "type": "boolean",
+      "default": true,
+      "note": "They are differences like any other. Turn it off on a Mac, where every folder anybody has looked at carries a .DS_Store that nobody put there."
+    },
+    {
+      "key": "seconds",
+      "label": "Times may differ by",
+      "type": "integer",
+      "default": 2,
+      "hint": "2",
+      "note": "Seconds. Two seconds by default, because a FAT volume keeps times to that and a file copied to one comes back looking a second older."
+    },
+    {
+      "key": "limit",
+      "label": "Stop after",
+      "type": "integer",
+      "default": 50000,
+      "hint": "50000",
+      "note": "Entries. A walk that never ends is worse than one that says where it stopped."
+    }
+  ]
+}
