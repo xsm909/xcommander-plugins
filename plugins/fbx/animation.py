@@ -58,7 +58,7 @@ import math
 from typing import Dict, List, Optional, Tuple
 
 from fbxfile import TIME_UNIT, Node
-from geometry import IDENTITY, local_transform, multiply, rotation, scaling, translation
+from geometry import IDENTITY, compose, local_transform, multiply
 from scene import Obj, Scene
 
 #: Frames are sampled, not interpolated on the fly by the host, so this caps
@@ -225,41 +225,14 @@ class Animated:
                 fallback = list(default)
             return (value(prop, fallback, 0), value(prop, fallback, 1), value(prop, fallback, 2))
 
-        return _compose(
+        # The same nine-part chain a standing-still node gets, so a pose and a
+        # bind pose can never disagree about how a node is put together.
+        return compose(
             node,
             vector("Lcl Translation", (0.0, 0.0, 0.0)),
             vector("Lcl Rotation", (0.0, 0.0, 0.0)),
             vector("Lcl Scaling", (1.0, 1.0, 1.0)),
         )
-
-
-def _compose(node: Node, t, r, s) -> List[float]:
-    """The same nine-part chain as a static node, with T, R and S supplied."""
-    order = node.property70("RotationOrder", 0)
-    order = int(order) if isinstance(order, (int, float)) else 0
-
-    def vec(name, default=(0.0, 0.0, 0.0)):
-        value = node.property70(name)
-        if isinstance(value, (list, tuple)) and len(value) >= 3:
-            return (float(value[0]), float(value[1]), float(value[2]))
-        return default
-
-    roff, rpiv = vec("RotationOffset"), vec("RotationPivot")
-    soff, spiv = vec("ScalingOffset"), vec("ScalingPivot")
-    pre, post = vec("PreRotation"), vec("PostRotation")
-
-    m = translation(*t)
-    m = multiply(m, translation(*roff))
-    m = multiply(m, translation(*rpiv))
-    m = multiply(m, rotation(pre, order))
-    m = multiply(m, rotation(r, order))
-    m = multiply(m, rotation(tuple(-v for v in post), order))
-    m = multiply(m, translation(*(-v for v in rpiv)))
-    m = multiply(m, translation(*soff))
-    m = multiply(m, translation(*spiv))
-    m = multiply(m, scaling(*s))
-    m = multiply(m, translation(*(-v for v in spiv)))
-    return m
 
 
 # -- skins -------------------------------------------------------------------

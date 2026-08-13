@@ -26,6 +26,10 @@ whether the whole corpus still reads.
 
 What it checks, beyond "does not throw":
 
+- **the transform arithmetic**, before a single file is opened. A chain of the
+  nine parts composed in the wrong order is still a rigid transform, and a
+  preview frames whatever it is handed — so one mesh on its own looks perfectly
+  right while sitting thousands of units from where the file put it;
 - every file yields objects and connections — a silently empty tree is the
   failure mode that looks like success;
 - in text files, every array is exactly as long as the file says it is, which
@@ -59,6 +63,85 @@ from scene import Scene, summarise
 DECLARED = re.compile(r"^\s*(\w+):\s*\*(\d+)\s*\{")
 
 
+# -- the arithmetic, which needs no files ------------------------------------
+
+
+def _node(**properties) -> fbxfile.Node:
+    """A Model node holding the properties named, and nothing else."""
+    entries = [
+        fbxfile.Node("P", [name, "", "", ""] + list(value), [])
+        for name, value in properties.items()
+    ]
+    return fbxfile.Node(
+        "Model", [0, "Cube::Model", "Mesh"],
+        [fbxfile.Node("Properties70", [], entries)],
+    )
+
+
+def check_arithmetic() -> list:
+    """Four things about a node's transform that no file has to be read to know.
+
+    Every one of them was true of the wrong answer as well — a chain composed
+    backwards is still a rigid transform, so a single mesh drawn by itself fills
+    the window and looks perfectly correct. These are the questions that tell
+    the two apart.
+    """
+    problems = []
+
+    def near(got, wanted, what, tolerance=1e-6):
+        if max(abs(a - b) for a, b in zip(got, wanted)) > tolerance:
+            problems.append("%s: got %s, wanted %s" % (
+                what,
+                " ".join("%.4f" % v for v in got),
+                " ".join("%.4f" % v for v in wanted),
+            ))
+
+    # A node's own origin is where the file says it is, whatever else the node
+    # does. Turn it and scale it by a hundred and it has still not moved.
+    m = geometry.local_transform(_node(**{
+        "Lcl Translation": (0.0, 0.0, -197.0),
+        "Lcl Rotation": (-110.0, -18.0, -4.0),
+        "Lcl Scaling": (100.0, 100.0, 100.0),
+    }))
+    near(geometry.transform_point(m, 0, 0, 0), (0.0, 0.0, -197.0),
+         "a node's origin is at its own translation")
+
+    # It is scaled about itself, too: a corner one unit out lands a hundred
+    # units out from where the node is, not from where the world is.
+    m = geometry.local_transform(_node(**{
+        "Lcl Translation": (10.0, 0.0, 0.0),
+        "Lcl Scaling": (100.0, 100.0, 100.0),
+    }))
+    near(geometry.transform_point(m, 1, 0, 0), (110.0, 0.0, 0.0),
+         "a node is scaled about itself")
+
+    # The euler order is the one it is named: eEulerXYZ turns about X first.
+    angles = (30.0, 40.0, 50.0)
+    by_hand = geometry.multiply(
+        geometry.multiply(
+            geometry.rotation((angles[0], 0, 0)),
+            geometry.rotation((0, angles[1], 0)),
+        ),
+        geometry.rotation((0, 0, angles[2])),
+    )
+    near(
+        geometry.transform_point(geometry.rotation(angles, 0), 1, 2, 3),
+        geometry.transform_point(by_hand, 1, 2, 3),
+        "eEulerXYZ turns about X first",
+    )
+
+    # A pivot is a place the turn happens about, so a node turned about a pivot
+    # of its own leaves that pivot where it was.
+    m = geometry.local_transform(_node(**{
+        "Lcl Rotation": (0.0, 90.0, 0.0),
+        "RotationPivot": (5.0, 0.0, 0.0),
+    }))
+    near(geometry.transform_point(m, 5, 0, 0), (5.0, 0.0, 0.0),
+         "a rotation pivot stays put")
+
+    return problems
+
+
 def check_declared_lengths(data: bytes, document) -> list:
     """Text form only: `Name: *N {` promises N values. Hold it to that."""
     if document.is_binary:
@@ -89,6 +172,10 @@ def main(folder: str) -> int:
 
     failures = 0
     binary = text = 0
+
+    for problem in check_arithmetic():
+        print("BAD   %-46s %s" % ("(the transform arithmetic)", problem))
+        failures += 1
     moved: list = []
     slowest = (0.0, "")
     widest = (0, "")

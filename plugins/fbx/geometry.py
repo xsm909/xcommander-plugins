@@ -67,7 +67,14 @@ def scaling(x: float, y: float, z: float) -> List[float]:
 
 
 def rotation(degrees: Tuple[float, float, float], order: int = 0) -> List[float]:
-    """Euler angles in degrees, in FBX's own rotation orders."""
+    """Euler angles in degrees, in FBX's own rotation orders.
+
+    The order is read the way it is named: `eEulerXYZ` turns about X first.
+    FBX's own documentation writes that chain backwards — `R = Rz * Ry * Rx` —
+    because it multiplies column vectors, and everything here is a row vector
+    meeting its matrices left to right. Same rotation, written the other way
+    round; writing it the documented way round is a rotation nobody asked for.
+    """
     x, y, z = (math.radians(v) for v in degrees)
     sx, cx = math.sin(x), math.cos(x)
     sy, cy = math.sin(y), math.cos(y)
@@ -77,12 +84,21 @@ def rotation(degrees: Tuple[float, float, float], order: int = 0) -> List[float]
     ry = [cy, 0, -sy, 0, 0, 1, 0, 0, sy, 0, cy, 0, 0, 0, 0, 1]
     rz = [cz, sz, 0, 0, -sz, cz, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
 
-    # FBX applies these right to left in the named order.
     sequence = {
-        0: (rz, ry, rx), 1: (ry, rz, rx), 2: (rz, rx, ry),
-        3: (rx, rz, ry), 4: (ry, rx, rz), 5: (rx, ry, rz),
-    }.get(order, (rz, ry, rx))
+        0: (rx, ry, rz), 1: (rx, rz, ry), 2: (ry, rz, rx),
+        3: (ry, rx, rz), 4: (rz, rx, ry), 5: (rz, ry, rx),
+    }.get(order, (rx, ry, rz))
     return multiply(multiply(sequence[0], sequence[1]), sequence[2])
+
+
+def inverse_rotation(m: List[float]) -> List[float]:
+    """A rotation undone, which for a rotation is its transpose."""
+    return [
+        m[0], m[4], m[8], 0,
+        m[1], m[5], m[9], 0,
+        m[2], m[6], m[10], 0,
+        0, 0, 0, 1,
+    ]
 
 
 def transform_point(m: List[float], x: float, y: float, z: float) -> Tuple[float, float, float]:
@@ -112,19 +128,25 @@ def _vector(node: Node, name: str, default=(0.0, 0.0, 0.0)) -> Tuple[float, floa
     return default
 
 
-def local_transform(node: Node) -> List[float]:
-    """One node's own transform, the way FBX composes it.
+def compose(node: Node, t, r, s) -> List[float]:
+    """One node's own transform, with its three animatable parts supplied.
 
     Nine parts, not three. Most files leave the offsets and pivots at zero, but
     the ones that do not are exactly the ones that come out of Maya looking
     right everywhere except here.
+
+    **The chain is written in the order things happen**: scaled about the
+    scaling pivot, turned about the rotation pivot, and only then put where the
+    file says. FBX's own documentation prints the same nine parts backwards,
+    `T * Roff * Rp * … * Sp⁻¹`, because it multiplies column vectors; every
+    matrix here is met by a row vector from the left. Writing it the documented
+    way round leaves a node's own translation to be rotated and scaled by that
+    same node — and a preview frames whatever it is handed, so a single mesh
+    thrown thousands of units away still fills the window and looks perfectly
+    correct. It was found by measuring a cube, not by looking at one.
     """
     order = node.property70("RotationOrder", 0)
     order = int(order) if isinstance(order, (int, float)) else 0
-
-    t = _vector(node, "Lcl Translation")
-    r = _vector(node, "Lcl Rotation")
-    s = _vector(node, "Lcl Scaling", (1.0, 1.0, 1.0))
 
     roff = _vector(node, "RotationOffset")
     rpiv = _vector(node, "RotationPivot")
@@ -133,18 +155,28 @@ def local_transform(node: Node) -> List[float]:
     pre = _vector(node, "PreRotation")
     post = _vector(node, "PostRotation")
 
-    m = translation(*t)
-    m = multiply(m, translation(*roff))
-    m = multiply(m, translation(*rpiv))
-    m = multiply(m, rotation(pre, order))
-    m = multiply(m, rotation(r, order))
-    m = multiply(m, rotation(tuple(-v for v in post), order))
-    m = multiply(m, translation(*(-v for v in rpiv)))
-    m = multiply(m, translation(*soff))
-    m = multiply(m, translation(*spiv))
+    m = translation(*(-v for v in spiv))
     m = multiply(m, scaling(*s))
-    m = multiply(m, translation(*(-v for v in spiv)))
+    m = multiply(m, translation(*spiv))
+    m = multiply(m, translation(*soff))
+    m = multiply(m, translation(*(-v for v in rpiv)))
+    m = multiply(m, inverse_rotation(rotation(post, order)))
+    m = multiply(m, rotation(r, order))
+    m = multiply(m, rotation(pre, order))
+    m = multiply(m, translation(*rpiv))
+    m = multiply(m, translation(*roff))
+    m = multiply(m, translation(*t))
     return m
+
+
+def local_transform(node: Node) -> List[float]:
+    """One node's own transform, as the file has it standing still."""
+    return compose(
+        node,
+        _vector(node, "Lcl Translation"),
+        _vector(node, "Lcl Rotation"),
+        _vector(node, "Lcl Scaling", (1.0, 1.0, 1.0)),
+    )
 
 
 def geometric_transform(node: Node) -> List[float]:
@@ -158,7 +190,7 @@ def geometric_transform(node: Node) -> List[float]:
     s = _vector(node, "GeometricScaling", (1.0, 1.0, 1.0))
     if t == (0, 0, 0) and r == (0, 0, 0) and s == (1, 1, 1):
         return IDENTITY
-    return multiply(multiply(translation(*t), rotation(r)), scaling(*s))
+    return multiply(multiply(scaling(*s), rotation(r)), translation(*t))
 
 
 # -- layers ------------------------------------------------------------------
