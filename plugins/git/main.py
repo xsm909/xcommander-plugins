@@ -20,12 +20,12 @@
 The log, what is in it, and what is not pushed yet. It follows the panel: walk
 into a repository and it is showing that one, walk out of it and it says so.
 
-**Nothing here writes, and nothing here reaches the network.** Whether a commit
-is pushed is answered from what the last fetch left behind, because a tool that
-opens a connection because you walked into a folder is a tool that hangs on a
-folder you did not mean to open. Everything that changes a repository — staging,
-committing, checking out — is a later segment, and it waits on the host learning
-how to let a plugin ask a question first.
+**Nothing here reaches the network.** Whether a commit is pushed is answered
+from what the last fetch left behind, because a tool that opens a connection
+because you walked into a folder is a tool that hangs on a folder you did not
+mean to open. What it does write — staging, unstaging, switching branch — it
+asks about first, and a dirty tree refuses a switch rather than negotiating one.
+Committing needs a line of typed text, which a plugin cannot ask for.
 """
 
 from __future__ import annotations
@@ -38,14 +38,19 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from xcommander import (
     DIRECTORY,
     ask,
+    cell,
+    chip,
+    column,
     Entry,
     FILE,
     FileSystem,
+    lay_out,
     Plugin,
     RpcError,
     navigate,
     notice,
     respond,
+    row,
     table,
     text,
 )
@@ -112,44 +117,82 @@ def repository_of(folder: str) -> Optional[str]:
 
 
 class Commit:
-    """One row of the log — or one line of the drawing beside it.
+    """One row of the log, and one commit — there is no other kind of row.
 
-    A row with no [hash] is the graph carrying on between commits: `git log
-    --graph` prints those, and dropping them would take the lines apart.
+    There used to be. `git log --graph` draws with characters, so a merge
+    fanning out takes a line of its own with no commit on it, and those had to
+    be kept or the lines came apart. The host draws the braid from lanes now,
+    so a row is a commit and nothing else.
     """
 
-    __slots__ = ("hash", "short", "author", "date", "subject", "graph", "local")
+    __slots__ = ("hash", "short", "author", "date", "subject", "parents",
+                 "refs", "local")
 
     def __init__(self, hash: str, short: str, author: str, date: str,
-                 subject: str, graph: str) -> None:
+                 subject: str, parents: List[str], refs: List[Tuple[str, str]]) -> None:
         self.hash = hash
         self.short = short
         self.author = author
         self.date = date
         self.subject = subject
-        #: What git drew to the left of this line: `*`, `|`, `|\` and the rest.
-        self.graph = graph
+        #: Full hashes, first parent first. What the shape of the log is made
+        #: of, and the only thing that can say what that shape is.
+        self.parents = parents
+        #: What points at this commit: `(kind, name)`, kind being `head`,
+        #: `branch`, `remote` or `tag`.
+        self.refs = refs
         #: True when no remote has it yet — the thing a log is read for as
         #: often as not.
         self.local = False
 
 
+def _refs_on(decoration: str) -> List[Tuple[str, str]]:
+    """`%D` read into `(kind, name)`, in the order git prints them.
+
+    Git says `HEAD -> main, origin/main, tag: v1.0`, and each of those means a
+    different thing to somebody reading a log: where you are, where the remote
+    was, and a name somebody nailed on.
+    """
+    found: List[Tuple[str, str]] = []
+    for piece in decoration.split(","):
+        name = piece.strip()
+        if not name:
+            continue
+        if name.startswith("HEAD -> "):
+            found.append(("head", name[len("HEAD -> "):]))
+        elif name == "HEAD":
+            found.append(("head", "HEAD"))
+        elif name.startswith("tag: "):
+            found.append(("tag", name[len("tag: "):]))
+        elif "/" in name:
+            found.append(("remote", name))
+        else:
+            found.append(("branch", name))
+    return found
+
+
 def log_of(root: str, count: int, all_branches: bool, graph: bool,
            ref: str = "HEAD") -> List[Commit]:
-    """The log, with git's own drawing of its shape down the left.
+    """The log: what each commit is, what it came from, and what points at it.
 
-    **The graph is git's, not ours.** Working out which lane a commit belongs
-    in is a solved problem solved badly by everyone who solves it again, and
-    `--graph` prints the answer. It also prints lines that are only the drawing
-    — a merge fanning out takes a line of its own — and those are kept as rows
-    with nothing in them but the picture, because throwing them away breaks the
-    lines they are part of.
+    One call. `%P` is what the shape is made of and `%D` is what a reader looks
+    for first, and asking for either separately would be walking the same
+    history twice.
+
+    **`--topo-order` when there is a graph, and it is not a preference.** By
+    date, a parent committed after its child comes out *above* it — which
+    happens the moment anyone works on two branches in an afternoon — and a
+    line then has to be drawn downwards to a commit that is already above.
+    Ordered by the shape, a parent is always below its children and the braid
+    holds. `git log --graph` turns this on for itself; we draw the graph, so we
+    turn it on for ourselves. Without a graph the dates are the more useful
+    order and it stays off.
     """
-    fields = FS.join(["%H", "%h", "%an", "%ad", "%s"])
+    fields = FS.join(["%H", "%h", "%an", "%ad", "%s", "%P", "%D"])
     body = run(
         root,
         "log",
-        *(["--graph"] if graph else []),
+        *(["--topo-order"] if graph else []),
         "--all" if all_branches else ref,
         "--max-count=%d" % count,
         "--date=format:%Y-%m-%d %H:%M",
@@ -161,19 +204,18 @@ def log_of(root: str, count: int, all_branches: bool, graph: bool,
     rows: List[Commit] = []
     for line in body.splitlines():
         parts = line.split(FS)
-        if len(parts) < 5:
-            # Drawing only: no commit on this line.
-            if line.strip():
-                rows.append(Commit("", "", "", "", "", line.rstrip()))
+        if len(parts) < 7:
             continue
-
-        # The hash sits at the end of the first field; whatever is in front of
-        # it is what git drew.
-        head = parts[0]
-        hash = head[-40:]
         rows.append(
-            Commit(hash, parts[1], parts[2], parts[3], parts[4],
-                   head[:-40].rstrip())
+            Commit(
+                parts[0],
+                parts[1],
+                parts[2],
+                parts[3],
+                parts[4],
+                parts[5].split(),
+                _refs_on(parts[6]),
+            )
         )
     return rows
 
@@ -225,29 +267,83 @@ def state_of(root: str) -> Tuple[str, str]:
 
 # -- what it draws -------------------------------------------------------------
 
-#: The mark on a commit no remote has.
-LOCAL = "↑"
+#: The row that stands for the working tree, at the head of the log. Not a
+#: commit and deliberately shaped like one: it is where the eye goes first, and
+#: it is what Git Extensions puts there. It has no place in the braid — nothing
+#: is committed, so there is nothing for a line to come from.
+WORKING = "working"
 
 
-def rows_of(commits: List[Commit], local: set) -> List[List[str]]:
+def columns_of(graph: bool) -> List[dict]:
+    """What a log is made of, and which part of it stretches.
+
+    The one thing a grid of text could never say, and the reason the host grew
+    columns at all: the braid must not stretch, the subject must, and the date
+    must not wrap.
+    """
     return [
-        [
-            LOCAL if commit.hash and commit.hash in local else "",
-            commit.graph,
-            commit.short,
-            commit.subject,
-            commit.author,
-            commit.date,
-        ]
-        for commit in commits
+        *([column("", kind="graph")] if graph else []),
+        column("Commit", width=72, kind="mono"),
+        column("Subject", flex=3),
+        column("Author", width=124),
+        column("When", width=118, align="right"),
     ]
 
 
-def content_of(commits: List[Commit], local: set) -> dict:
-    return table(
-        ["", "", "Commit", "Subject", "Author", "When"],
-        rows_of(commits, local),
-    )
+def rows_of(commits: List[Commit], graph: bool) -> List[dict]:
+    """One row per commit, with the braid beside it if it is wanted.
+
+    The lanes come from the parents, which is the only thing that knows the
+    shape. `lay_out` is the host SDK's, so this plugin never writes that
+    algorithm — and neither does the next one.
+    """
+    braids: List[Optional[dict]] = []
+    if graph:
+        # The working tree is not in the history and takes no lane: nothing is
+        # committed, so there is nothing for a line to come from. Laid out
+        # without it and put back in step afterwards.
+        laid = lay_out(
+            [(c.hash, c.parents) for c in commits if c.hash != WORKING]
+        )
+        at = 0
+        for commit in commits:
+            if commit.hash == WORKING:
+                braids.append(None)
+            else:
+                braids.append(laid[at])
+                at += 1
+
+    rows: List[dict] = []
+    for index, commit in enumerate(commits):
+        cells: List[object] = [
+            commit.short,
+            cell(
+                commit.subject,
+                chips=[chip(name, kind) for kind, name in commit.refs],
+            ),
+            commit.author,
+            commit.date,
+        ]
+        if graph:
+            cells.insert(0, "")
+
+        rows.append(
+            row(
+                cells,
+                # Not pushed is the one thing about a commit worth saying in
+                # colour, and `accent` is how a row says "there is something
+                # different about this one" without naming a colour.
+                role="strong" if commit.hash == WORKING
+                else "accent" if commit.local
+                else "normal",
+                braid=braids[index] if graph else None,
+            )
+        )
+    return rows
+
+
+def content_of(commits: List[Commit], graph: bool) -> dict:
+    return table(columns_of(graph), rows_of(commits, graph))
 
 
 def menus_of(options: Dict[str, object]) -> List[dict]:
@@ -317,12 +413,6 @@ def files_of(root: str, hash: str) -> List[Tuple[str, str]]:
         # file ended up.
         files.append((parts[0][0], parts[-1]))
     return files
-
-
-#: The row that stands for the working tree, at the head of the log. Not a
-#: commit and deliberately shaped like one: it is where the eye goes first, and
-#: it is what Git Extensions puts there.
-WORKING = "working"
 
 
 def working_tree(root: str) -> List[Tuple[str, str, str]]:
@@ -656,16 +746,17 @@ def show(context, options: Optional[Dict[str, object]] = None,
     showing = ref or branch
     _at[context.session] = Where(root, showing, name)
 
+    graph = bool(options.get("graph", True))
     commits = log_of(
         root,
         int(options.get("commits", 200) or 200),
         bool(options.get("allBranches", False)),
-        bool(options.get("graph", True)),
+        graph,
         ref or "HEAD",
     )
     local = unpushed(root)
     for commit in commits:
-        commit.local = bool(commit.hash) and commit.hash in local
+        commit.local = commit.hash in local
 
     # The working tree at the head of the log, where Git Extensions puts it and
     # where the eye goes first. Only when there is something in it: a row that
@@ -682,7 +773,8 @@ def show(context, options: Optional[Dict[str, object]] = None,
                 "",
                 "Working tree — %d changed%s"
                 % (len(changes), ", %d staged" % staged if staged else ""),
-                "",
+                [],
+                [],
             ),
         )
 
@@ -690,7 +782,7 @@ def show(context, options: Optional[Dict[str, object]] = None,
     count = sum(1 for commit in commits if commit.local)
 
     return respond(
-        content=content_of(commits, local),
+        content=content_of(commits, graph),
         title="Git",
         trail=[name, showing],
         status="%s — %s%s"
@@ -726,8 +818,11 @@ def show_commit(session: str, at: Where, commit: Commit) -> dict:
 
     return respond(
         content=table(
-            ["", "File"],
-            [[_STATUS.get(status, status), path] for status, path in at.files],
+            [column("", width=96), column("File", flex=1)],
+            [
+                row([_STATUS.get(status, status), path])
+                for status, path in at.files
+            ],
         ),
         trail=[at.name, at.branch, at.short],
         status="%s — %s · %s · %d file%s"
@@ -760,8 +855,16 @@ def show_working(at: Where) -> dict:
     staged = sum(1 for index, _, _ in changes if index not in (" ", "?"))
     return respond(
         content=table(
-            ["", "File"],
-            [[_worktree_state(index, tree), path] for index, tree, path in changes],
+            [column("", width=150), column("File", flex=1)],
+            [
+                # Staged is the one state worth a mark of its own: it is what
+                # the next commit will be made of.
+                row(
+                    [_worktree_state(index, tree), path],
+                    role="accent" if index not in (" ", "?") else "normal",
+                )
+                for index, tree, path in changes
+            ],
         ),
         trail=[at.name, at.branch, at.short],
         status="%d changed%s"
@@ -808,16 +911,26 @@ def show_refs(at: Where) -> dict:
 
     return respond(
         content=table(
-            ["", "Name", "Last commit", "When"],
             [
-                [
-                    # The one you are on says so, because that is the first
-                    # thing anybody looks for in this list.
-                    "→" if kind == "branch" and name == at.branch else kind,
-                    name,
-                    subject,
-                    when,
-                ]
+                column("Name", flex=2),
+                column("Last commit", flex=3),
+                column("When", width=118, align="right"),
+            ],
+            [
+                row(
+                    [
+                        # The one you are on is drawn as the one you are on:
+                        # `head` is the chip that says where you are, and that
+                        # is the first thing anybody looks for in this list.
+                        cell(chips=[chip(
+                            name,
+                            "head" if kind == "branch" and name == at.branch
+                            else kind,
+                        )]),
+                        subject,
+                        when,
+                    ]
+                )
                 for kind, name, subject, when in at.refs
             ],
         ),
@@ -864,28 +977,27 @@ def git(context, event) -> dict:
     at = _at.get(context.session)
 
     if event.kind == "activate" and at is not None:
-        row = event.row
-        if row is None or row < 0:
+        at_row = event.row
+        if at_row is None or at_row < 0:
             return respond()
 
         if at.level == "log":
             commits = _log_cache.get(context.session) or []
-            if row >= len(commits) or not commits[row].hash:
-                # A row that is only the graph carrying on. Nothing to open.
+            if at_row >= len(commits):
                 return respond()
-            if commits[row].hash == WORKING:
+            if commits[at_row].hash == WORKING:
                 return show_working(at)
-            return show_commit(context.session, at, commits[row])
+            return show_commit(context.session, at, commits[at_row])
 
         if at.level == "refs":
-            if row >= len(at.refs):
+            if at_row >= len(at.refs):
                 return respond()
-            return show(context, _options.get(context.session), at.refs[row][1])
+            return show(context, _options.get(context.session), at.refs[at_row][1])
 
         if at.level in ("commit", "working"):
-            if row >= len(at.files):
+            if at_row >= len(at.files):
                 return respond()
-            status, path = at.files[row]
+            status, path = at.files[at_row]
             return show_file(at, status, path)
 
         return respond()
@@ -922,16 +1034,16 @@ def git(context, event) -> dict:
         # The secondary press sends the panel beside this one *into* the
         # commit. A commander already has two sides; the point of a tree at a
         # revision is having it next to the tree as it is now.
-        row = event.row
-        if at.level == "refs" and row is not None and 0 <= row < len(at.refs):
-            name = at.refs[row][1]
+        at_row = event.row
+        if at.level == "refs" and at_row is not None and 0 <= at_row < len(at.refs):
+            name = at.refs[at_row][1]
             return respond(
                 actions=[navigate(tree_url(at.root, name))],
                 status="%s — opened beside this one" % name,
             )
 
-        if at.level == "working" and row is not None and 0 <= row < len(at.files):
-            state, path = at.files[row]
+        if at.level == "working" and at_row is not None and 0 <= at_row < len(at.files):
+            state, path = at.files[at_row]
             index, tree = (state + "  ")[0], (state + "  ")[1]
             if index not in (" ", "?"):
                 kind, title, confirm = (
@@ -950,12 +1062,12 @@ def git(context, event) -> dict:
                 actions=[ask(kind, title, "In %s." % at.name, confirm=confirm)]
             )
 
-        if at.level == "log" and row is not None and row >= 0:
+        if at.level == "log" and at_row is not None and at_row >= 0:
             commits = _log_cache.get(context.session) or []
-            if row < len(commits) and commits[row].hash not in ("", WORKING):
+            if at_row < len(commits) and commits[at_row].hash != WORKING:
                 return respond(
-                    actions=[navigate(tree_url(at.root, commits[row].hash))],
-                    status="%s — opened beside this one" % commits[row].short,
+                    actions=[navigate(tree_url(at.root, commits[at_row].hash))],
+                    status="%s — opened beside this one" % commits[at_row].short,
                 )
         return respond()
 
