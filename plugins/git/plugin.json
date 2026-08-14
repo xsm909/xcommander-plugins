@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.git",
   "name": "Git",
-  "version": "0.30.0",
+  "version": "0.31.0",
   "description": "The repository the panel is standing in, on one page: its branches, its log with the shape of the history drawn, what each commit touched and the difference itself.",
   "category": "Tools",
   "author": "xcommander",
@@ -42,13 +42,6 @@
       "default": 1000,
       "hint": "1000",
       "note": "A log is walked from the tip, so this is how far back it goes. The status line says when it stopped short — a fork whose other side is one commit past the end looks exactly like no fork at all."
-    },
-    {
-      "key": "sidebar",
-      "label": "Branches down the side as well",
-      "type": "boolean",
-      "default": false,
-      "note": "The pill in the bar already says which branch you are on and opens the rest. This puts the whole list down the side too, which is a fifth of the window spent on something you glance at."
     },
     {
       "key": "allBranches",

@@ -398,7 +398,6 @@ _DEFAULTS: Dict[str, object] = {
     # braid is drawn for.
     "allBranches": True,
     "graph": True,
-    "sidebar": False,
     # Off, and it is the switch that makes the rule true rather than an
     # exception to it: a picture of somebody lives on a server, so nothing is
     # fetched until somebody has said they want that.
@@ -442,11 +441,6 @@ def menus_of(options: Dict[str, object]) -> List[dict]:
             "label": "Repository",
             "accelerator": "r",
             "items": [
-                {
-                    "id": "toggle.sidebar",
-                    "label": "Branches, tags and remotes down the side",
-                    "checked": bool(setting(options, "sidebar")),
-                },
                 {"id": "checkout", "label": "Switch to the branch being shown"},
                 {
                     "id": "goto.cursor",
@@ -1125,8 +1119,8 @@ class Where:
     """
 
     __slots__ = ("root", "branch", "name", "hash", "short", "subject",
-                 "author", "files", "file", "diff", "shown", "refs", "rows",
-                 "sidebar", "avatars")
+                 "author", "files", "file", "diff", "shown", "refs",
+                 "avatars")
 
     def __init__(self, root: str, branch: str, name: str) -> None:
         self.root = root
@@ -1147,12 +1141,6 @@ class Where:
         self.shown = ""
         #: The branches, tags and remotes as last listed.
         self.refs: List[Tuple[str, str, str, str]] = []
-        #: What each row of the sidebar stands for, or None for a heading.
-        self.rows: List[Optional[str]] = []
-        #: Whether the list of branches stands down the side as well. Off: the
-        #: pill in the bar says which branch and opens the rest, and the room
-        #: goes to the log.
-        self.sidebar = False
         #: Whether the author's address is handed over, which is what asks the
         #: host to go and find their picture.
         self.avatars = False
@@ -1516,7 +1504,7 @@ def _detail_title(at: Where) -> str:
     )
 
 
-#: What each shelf of the sidebar is called, in the order Fork stands them in.
+#: What each shelf of the pill is called, in the order Fork stands them in.
 _SHELVES = [("branch", "Branches"), ("remote", "Remotes"), ("tag", "Tags")]
 
 
@@ -1553,48 +1541,6 @@ def branch_pill(at: Where) -> dict:
     }
 
 
-def sidebar_of(at: Where) -> dict:
-    """Every branch, remote and tag, standing beside the log rather than
-    instead of it.
-
-    **This is the difference between Fork and the tool this used to copy.** A
-    list of branches on a page of its own is a place you go to and come back
-    from; a list of branches down the side is something you glance at, and the
-    glance is most of what it is for. It costs a part now, so it is one.
-
-    The rows are kept flat with a heading between the shelves. A heading is a
-    row that is `strong` and has nothing to press — which is the whole of what
-    a heading is, and needs no shape of its own in the contract.
-    """
-    rows: List[dict] = []
-    #: What each row *is*, so a press knows: `None` for a heading.
-    at.rows = []
-
-    for kind, heading in _SHELVES:
-        on_shelf = [ref for ref in at.refs if ref[0] == kind]
-        if not on_shelf:
-            continue
-        rows.append(row([cell("%s  %d" % (heading, len(on_shelf)))], role="dim"))
-        at.rows.append(None)
-        for _, name, subject, when in on_shelf:
-            rows.append(
-                row([
-                    cell(chips=[chip(
-                        name,
-                        # The one you are on is drawn as the one you are on,
-                        # here and in the log both.
-                        "head" if kind == "branch" and name == at.branch
-                        else kind,
-                    )])
-                ])
-            )
-            at.rows.append(name)
-
-    if not rows:
-        return text("This repository has no branches yet.")
-    return table([column("", flex=1)], rows)
-
-
 def page_of(at: Where, commits: List[Commit], graph: bool) -> dict:
     """The whole page: the log, and underneath it what the cursor is on.
 
@@ -1602,22 +1548,12 @@ def page_of(at: Where, commits: List[Commit], graph: bool) -> dict:
     means looking at a commit *without losing the list it is in*, and knowing
     what branches there are without going to look for them.
     """
-    history = split(
+    return split(
         [
             part("log", content_of(commits, graph, at.avatars), weight=3),
             part("detail", _detail_content(at), weight=2,
                  title=_detail_title(at)),
         ]
-    )
-    if not at.sidebar:
-        return history
-
-    return split(
-        [
-            part("refs", sidebar_of(at), weight=1, title=at.name),
-            part("history", history, weight=4),
-        ],
-        "horizontal",
     )
 
 
@@ -1784,7 +1720,6 @@ def show(context, options: Optional[Dict[str, object]] = None,
         )
 
     at.refs = refs_of(root)
-    at.sidebar = bool(setting(options, "sidebar"))
     at.avatars = bool(setting(options, "avatars"))
     _log_cache[context.session] = commits
     if commits:
@@ -2565,19 +2500,6 @@ def git(context, event) -> dict:
         if at_row is None or at_row < 0:
             return respond()
 
-        # A ref in the sidebar is only followed when it is *asked* for. The
-        # cursor passing over one on its way down the list is not a request to
-        # re-read the whole history at it.
-        if event.part == "refs":
-            if event.kind != "activate":
-                return respond()
-            if at_row >= len(at.rows):
-                return respond()
-            name = at.rows[at_row]
-            if name is None:
-                return respond()
-            return show(context, _options.get(context.session), name)
-
         if event.part == "log":
             commits = _log_cache.get(context.session) or []
             if at_row >= len(commits):
@@ -2698,16 +2620,6 @@ def git(context, event) -> dict:
         at_row = event.row
         if at_row is None or at_row < 0:
             return respond()
-
-        if event.part == "refs" and at_row < len(at.rows):
-            name = at.rows[at_row]
-            if name is None:
-                return respond()
-            return respond(context_menu=[
-                {"id": "ref." + name, "label": "Show its history"},
-                {},
-                {"id": "goto" + SEP + name, "label": "Go to its files"},
-            ])
 
         if event.part == "log":
             commits = _log_cache.get(context.session) or []
