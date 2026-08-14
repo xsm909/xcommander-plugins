@@ -1044,6 +1044,13 @@ class Staging:
 #: The commit page each open copy has, while it has one.
 _staging: Dict[str, Staging] = {}
 
+#: The other half of a question already being asked: the files in the same lot
+#: that have to go to the host to be deleted rather than to git to be put back.
+_also: Dict[str, List[str]] = {}
+
+#: How many of them there are, for the sentence the question is asked in.
+_fresh_said: Dict[str, int] = {}
+
 
 # -- the page ------------------------------------------------------------------
 
@@ -1082,6 +1089,24 @@ def _files_content(at: Where) -> dict:
         [column("", kind="icon"), column("File", flex=1)],
         [row([_mark(status), path]) for status, path in at.files],
     )
+
+
+def _status_of(at: Where, path: str) -> str:
+    """The two letters the working-tree list is holding for one path."""
+    for status, one in at.files:
+        if one == path:
+            return status
+    return "  "
+
+
+def urls_of(root: str, paths: List[str]) -> List[str]:
+    """Where the host is pointed when it is asked to delete something."""
+    return ["file://" + quote(os.path.join(root, path)) for path in paths]
+
+
+def is_untracked(work: Staging, path: str) -> bool:
+    """Whether git has never been told about this one."""
+    return any(status == "?" and one == path for status, one in work.unstaged)
 
 
 def read_staging(work: Staging) -> None:
@@ -1730,8 +1755,6 @@ def staging_event(context, work: Staging, event) -> Optional[dict]:
         chosen = [row_at for row_at in event.marked if row_at < len(listing)]
         if at_row not in chosen:
             chosen = [at_row]
-        fresh = [listing[at][1] for at in chosen if listing[at][0] == "?"]
-        tracked = [listing[at][1] for at in chosen if listing[at][0] != "?"]
         many = len(chosen) > 1
         subject = RS.join(listing[at][1] for at in chosen)
 
@@ -1751,23 +1774,15 @@ def staging_event(context, work: Staging, event) -> Optional[dict]:
         # actually does to it. Throwing away an edit and deleting a file that
         # git has never heard of are not the same act, and one word over both
         # of them would be a word that is wrong half the time.
-        if tracked:
-            rows.append({})
-            rows.append({
-                "id": "discard" + SEP + RS.join(tracked),
-                "label": "Discard the changes to %s"
-                % (("%d files" % len(tracked)) if len(tracked) > 1
-                   else os.path.basename(tracked[0])),
-            })
-        if fresh:
-            if not tracked:
-                rows.append({})
-            rows.append({
-                "id": "remove" + SEP + RS.join(fresh),
-                "label": "Delete %s"
-                % (("%d new files" % len(fresh)) if len(fresh) > 1
-                   else os.path.basename(fresh[0])),
-            })
+        rows.append({})
+        rows.append({
+            "id": "discard" + SEP + subject,
+            "label": "Discard all" if many
+            else "Discard %s" % os.path.basename(listing[chosen[0]][1])
+            if listing[chosen[0]][0] == "?"
+            else "Discard the changes to %s"
+            % os.path.basename(listing[chosen[0]][1]),
+        })
 
         return respond(context_menu=rows)
 
@@ -1781,15 +1796,18 @@ def staging_event(context, work: Staging, event) -> Optional[dict]:
             return respond(status="Nothing was changed.")
 
         _, subject = question
-        paths = subject.split(RS)
-        done, said = do(work.root, "restore", "--staged", "--worktree", "--",
-                        *paths)
-        if not done:
-            # Never staged, so there is no index copy to come back from —
-            # `--staged` is what fails, and the tree alone is the whole story.
-            done, said = do(work.root, "restore", "--", *paths)
-        if not done:
-            return respond(actions=[notice(said)])
+        paths = [one for one in subject.split(RS) if one]
+        fresh = _also.pop("%s:discard" % context.session, [])
+
+        if paths:
+            done, said = do(work.root, "restore", "--staged", "--worktree",
+                            "--", *paths)
+            if not done:
+                # Never staged, so there is no index copy to come back from —
+                # `--staged` is what fails, and the tree is the whole story.
+                done, said = do(work.root, "restore", "--", *paths)
+            if not done:
+                return respond(actions=[notice(said)])
 
         read_staging(work)
         staging_diff(work)
@@ -1798,6 +1816,9 @@ def staging_event(context, work: Staging, event) -> Optional[dict]:
             len(paths), "" if len(paths) == 1 else "s",
             "it was" if len(paths) == 1 else "they were",
         )
+        # The new ones in the same lot: the host bins them, and says so itself.
+        if fresh:
+            answer["actions"] = [delete(urls_of(work.root, fresh))]
         return answer
 
     if event.kind == "deleted":
@@ -1833,27 +1854,35 @@ def staging_event(context, work: Staging, event) -> Optional[dict]:
                 return show_staging(work)
 
             if kind == "discard":
+                known = [one for one in paths if not is_untracked(work, one)]
+                fresh = [one for one in paths if one not in known]
+
+                # A file git has never heard of has no version to go back to,
+                # so discarding it is deleting it — and that goes through the
+                # *host*, which asks in the application's own words and uses
+                # the recycle bin. Where the lot is new, that dialog is the
+                # only one: two questions about one press is one too many.
+                if fresh and not known:
+                    return respond(
+                        actions=[delete(urls_of(work.root, fresh))]
+                    )
+
                 _pending["%s:%s" % (context.session, "discard")] = (
-                    "discard", subject
+                    "discard", RS.join(known)
                 )
+                _also["%s:discard" % context.session] = fresh
                 return respond(actions=[ask(
                     "discard",
-                    "Throw away the changes to %d file%s?"
+                    "Discard %d file%s?"
                     % (len(paths), "" if len(paths) == 1 else "s"),
                     "In %s. This cannot be undone: what is thrown away was "
-                    "never committed." % work.name,
+                    "never committed.%s" % (
+                        work.name,
+                        " The new ones go to the recycle bin." if fresh else "",
+                    ),
                     confirm="Discard",
                     danger=True,
                 )])
-
-            if kind == "remove":
-                # The host deletes, asks first in the application's own words,
-                # and uses the recycle bin where there is one — the rule a
-                # plugin does not get to go round.
-                return respond(actions=[delete([
-                    "file://" + quote(os.path.join(work.root, path))
-                    for path in paths
-                ])])
 
             return respond()
 
@@ -2048,7 +2077,8 @@ def git(context, event) -> dict:
             )
             return answer
 
-        paths = subject.split(RS)
+        paths = [one for one in subject.split(RS) if one]
+        fresh = _also.pop("%s:discard" % context.session, [])
         if kind == "stage":
             done, said = do(at.root, "add", "--", *paths)
         elif kind == "unstage":
@@ -2068,7 +2098,10 @@ def git(context, event) -> dict:
             return respond(actions=[notice(said)])
         # The tree is a different tree now, and the whole page has to say so:
         # the row at the head of the log counts what has changed.
-        return show(context, _options.get(context.session))
+        answer = show(context, _options.get(context.session))
+        if fresh:
+            answer["actions"] = [delete(urls_of(at.root, fresh))]
+        return answer
 
     if event.kind == "deleted" and at is not None:
         return show(context, _options.get(context.session))
@@ -2152,23 +2185,15 @@ def git(context, event) -> dict:
                         "label": "Put %s in the next commit"
                         % ("them" if many else "it"),
                     })
-                if tracked:
-                    rows.append({})
-                    rows.append({
-                        "id": "discard" + SEP + RS.join(tracked),
-                        "label": "Discard the changes to %s"
-                        % (("%d files" % len(tracked)) if len(tracked) > 1
-                           else os.path.basename(tracked[0])),
-                    })
-                if fresh:
-                    if not tracked:
-                        rows.append({})
-                    rows.append({
-                        "id": "remove" + SEP + RS.join(fresh),
-                        "label": "Delete %s"
-                        % (("%d new files" % len(fresh)) if len(fresh) > 1
-                           else os.path.basename(fresh[0])),
-                    })
+                rows.append({})
+                rows.append({
+                    "id": "discard" + SEP + RS.join(paths),
+                    "label": "Discard all" if many
+                    else "Discard %s" % os.path.basename(paths[0])
+                    if fresh
+                    else "Discard the changes to %s"
+                    % os.path.basename(paths[0]),
+                })
                 return respond(context_menu=rows)
 
             # A file the commit deleted is not in the commit's tree, so there
@@ -2237,14 +2262,6 @@ def git(context, event) -> dict:
             paths = subject.split(RS)
             named = ("%d files" % len(paths)) if len(paths) > 1 else paths[0]
 
-            if kind == "remove":
-                # The host deletes, asks in the application's own words, and
-                # uses the recycle bin — a plugin does not get to go round it.
-                return respond(actions=[delete([
-                    "file://" + quote(os.path.join(at.root, path))
-                    for path in paths
-                ])])
-
             if kind == "unstage":
                 title, confirm = "Take %s out of the next commit?" % named, "Unstage"
                 danger = False
@@ -2252,17 +2269,37 @@ def git(context, event) -> dict:
                 title, confirm = "Put %s in the next commit?" % named, "Stage"
                 danger = False
             else:
-                title, confirm = "Throw away the changes to %s?" % named, "Discard"
-                danger = True
+                # A file git has never heard of has nothing to be put back to,
+                # so discarding it means deleting it, and the host does that —
+                # in the application's own words and into the recycle bin. All
+                # new, and its dialog is the only one there is.
+                fresh = [one for one in paths
+                         if "?" in _status_of(at, one)]
+                known = [one for one in paths if one not in fresh]
+                if fresh and not known:
+                    return respond(actions=[delete(urls_of(at.root, fresh))])
+                _also["%s:discard" % context.session] = fresh
+                subject = RS.join(known)
+                title = "Discard %s?" % named
+                confirm, danger = "Discard", True
+                if fresh:
+                    # Said out loud, because "discard" over a file git has
+                    # never heard of means the file itself goes.
+                    _fresh_said[context.session] = len(fresh)
 
             _pending["%s:%s" % (context.session, kind)] = (kind, subject)
+            bin_note = _fresh_said.pop(context.session, 0)
             return respond(actions=[ask(
                 kind,
                 title,
-                "In %s.%s" % (
+                "In %s.%s%s" % (
                     at.name,
                     " This cannot be undone: what is thrown away was never "
                     "committed." if danger else "",
+                    (" One of them is a new file, and it goes to the recycle "
+                     "bin." if bin_note == 1
+                     else " %d of them are new files, and those go to the "
+                     "recycle bin." % bin_note) if bin_note else "",
                 ),
                 confirm=confirm,
                 danger=danger,
