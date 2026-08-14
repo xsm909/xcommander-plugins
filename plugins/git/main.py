@@ -485,8 +485,15 @@ def working_tree(root: str) -> List[Tuple[str, str, str]]:
     Straight from `status --porcelain`, whose two columns are exactly that
     question: what the index has that HEAD does not, and what the disk has that
     the index does not. `??` in both is a file git has never been told about.
+
+    **`-uall`, and it is not a preference.** Left to itself git reports a
+    folder nothing in which is tracked as *one line ending in a slash* — it is
+    answering "what should I tell you about", and a folder is the shorter
+    answer. But this is a list of files to stage and to look at, and a folder
+    has no difference to show: the row was there, it could not be previewed,
+    and the files inside it were nowhere.
     """
-    body = run(root, "status", "--porcelain")
+    body = run(root, "status", "--porcelain", "-uall")
     if not body:
         return []
 
@@ -502,13 +509,70 @@ def working_tree(root: str) -> List[Tuple[str, str, str]]:
     return changes
 
 
+#: How much of a new file is worth showing before it stops being a preview.
+#: Lines, and bytes, because either one alone lets the other through.
+UNTRACKED_LINES = 2000
+UNTRACKED_BYTES = 512 * 1024
+
+
+def looks_binary(full: str) -> bool:
+    """Whether a file on the disk is one to draw rather than to read.
+
+    git's own test, and deliberately the same one: a zero byte anywhere near
+    the front. Asked of the disk because git will not answer about a file it
+    has never been told about — `--numstat` has nothing to say for a path that
+    is not in the index.
+    """
+    try:
+        with open(full, "rb") as reading:
+            return b"\0" in reading.read(8000)
+    except OSError:
+        return False
+
+
+def untracked_diff(root: str, path: str) -> str:
+    """A file git has never been told about, as the addition it would be.
+
+    Written out here rather than asked of git. `git diff --no-index` answers
+    this exactly, and answers it with **an exit code of 1** — its way of saying
+    "they differ" — which `run` reads as a failure like any other, so a new
+    file showed as "nothing to show" however much was in it. There is no
+    comparison to make anyway: nothing of it is old.
+    """
+    full = os.path.join(root, path)
+    try:
+        with open(full, "rb") as reading:
+            raw = reading.read(UNTRACKED_BYTES + 1)
+    except OSError as trouble:
+        return "This file could not be read: %s" % trouble
+
+    cut = len(raw) > UNTRACKED_BYTES
+    body = raw[:UNTRACKED_BYTES].decode("utf-8", "replace")
+    lines = body.splitlines()
+    if len(lines) > UNTRACKED_LINES:
+        lines = lines[:UNTRACKED_LINES]
+        cut = True
+
+    # The header git would have printed, so the host colours it as the diff it
+    # is: everything green, against nothing.
+    out = [
+        "--- /dev/null",
+        "+++ b/%s" % path,
+        "@@ -0,0 +1,%d @@" % len(lines),
+    ]
+    out.extend("+" + line for line in lines)
+    if cut:
+        out.append("+")
+        out.append("+... the rest of a new file this long is not a preview.")
+    return "\n".join(out)
+
+
 def worktree_diff(root: str, index: str, tree: str, path: str) -> str:
     """One file's difference, from whichever side of it has changed."""
     if index == "?" or tree == "?":
         # Never seen by git, so there is nothing to compare it against — but
         # what is in it is exactly what would be added.
-        body = run(root, "diff", "--no-color", "--no-index", os.devnull, path)
-        return (body or "").lstrip("\n")
+        return untracked_diff(root, path)
 
     if tree != " ":
         # Changed on the disk since it was staged, which is the difference the
@@ -609,8 +673,16 @@ def is_binary(root: str, hash: str, path: str) -> bool:
     return False
 
 
-def worktree_is_binary(root: str, path: str) -> bool:
-    """The same question about the working tree."""
+def worktree_is_binary(root: str, path: str, untracked: bool = False) -> bool:
+    """The same question about the working tree.
+
+    A file git has never been told about is asked of the disk instead: git has
+    no opinion on a path that is in neither the index nor a commit, and the
+    silence used to read as "text", which put a new PNG through a diff.
+    """
+    if untracked:
+        return looks_binary(os.path.join(root, path))
+
     for args in (["diff", "--numstat", "--", path],
                  ["diff", "--numstat", "--cached", "--", path]):
         body = run(root, *args)
@@ -1073,7 +1145,7 @@ def select_file(at: Where, index: int) -> None:
     status, path = at.files[index]
 
     if at.hash == WORKING:
-        if worktree_is_binary(at.root, path):
+        if worktree_is_binary(at.root, path, untracked="?" in status):
             # On the disk, which is the version being looked at.
             at.diff = ""
             at.shown = "file://" + quote(os.path.join(at.root, path))
