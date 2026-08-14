@@ -1589,9 +1589,11 @@ def show(context, options: Optional[Dict[str, object]] = None,
             # handlers.
             {"id": "refresh", "label": "Refresh", "icon": "refresh",
              "tooltip": "Refresh"},
-            {"id": "fetch", "label": "Fetch", "icon": "download",
+            # The pair going round is the one that only asks; the arrow down
+            # is the one that actually brings something onto the disk.
+            {"id": "fetch", "label": "Fetch", "icon": "sync",
              "tooltip": "Fetch"},
-            {"id": "pull", "label": "Pull", "icon": "sync",
+            {"id": "pull", "label": "Pull", "icon": "download",
              "tooltip": "Pull"},
             {"id": "push", "label": "Push", "icon": "upload",
              "tooltip": "Push"},
