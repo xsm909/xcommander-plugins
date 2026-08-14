@@ -1744,6 +1744,36 @@ def staging_event(context, work: Staging, event) -> Optional[dict]:
             )
         return answer
 
+    # Carried from one list to the other. It is the same act as pressing Enter
+    # on them — the hand said which way, so nothing here has to work it out —
+    # and the same act asks nothing, for the same reason: this page is for
+    # moving files between these two lists.
+    if event.kind == "drop" and event.from_part in ("unstaged", "staged"):
+        if event.part == event.from_part:
+            return respond()
+        listing = (work.unstaged if event.from_part == "unstaged"
+                   else work.staged)
+        paths = [listing[one][1] for one in event.marked if one < len(listing)]
+        if not paths:
+            return respond()
+
+        if event.from_part == "unstaged":
+            done, said = do(work.root, "add", "--", *paths)
+        else:
+            done, said = do(work.root, "restore", "--staged", "--", *paths)
+        if not done:
+            return respond(actions=[notice(said)])
+
+        read_staging(work)
+        staging_diff(work)
+        answer = show_staging(work)
+        answer["status"] = "%d file%s %s." % (
+            len(paths),
+            "" if len(paths) == 1 else "s",
+            "put in" if event.from_part == "unstaged" else "taken out",
+        )
+        return answer
+
     if event.kind == "mark" and event.part in ("unstaged", "staged"):
         at_row = event.row
         if at_row is None or at_row < 0:
