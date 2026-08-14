@@ -36,6 +36,24 @@
     "updated": "2026-08-10T20:51:43+02:00"
   },
   {
+    "folder": "duplicates",
+    "id": "org.xcommander.duplicates",
+    "name": "Find duplicates",
+    "version": "0.1.0",
+    "description": "The same file kept in more than one place: sets of identical copies under a folder, biggest first, with what the extra copies are costing.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Tools",
+    "icon": null,
+    "updated": null
+  },
+  {
     "folder": "fbx",
     "id": "org.xcommander.fbx",
     "name": "FBX",
@@ -87,7 +105,7 @@
     "pythonMin": "3.12",
     "category": "Tools",
     "icon": "icon.png",
-    "updated": "2026-08-14T22:42:20+02:00"
+    "updated": "2026-08-14T23:52:37+02:00"
   },
   {
     "folder": "image",
