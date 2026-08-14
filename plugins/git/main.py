@@ -49,7 +49,6 @@ from xcommander import (
     FileSystem,
     field,
     form,
-    fullscreen,
     lay_out,
     page,
     Plugin,
@@ -991,11 +990,15 @@ class Staging:
     """
 
     __slots__ = ("root", "name", "unstaged", "staged", "part", "rows",
-                 "diff", "shown", "amending")
+                 "diff", "shown", "amending", "wide")
 
-    def __init__(self, root: str, name: str) -> None:
+    def __init__(self, root: str, name: str, wide: bool = True) -> None:
         self.root = root
         self.name = name
+        #: Whether there is room for the two-column arrangement. A panel is
+        #: given the one-column one; the host narrows either of them further by
+        #: itself when the window says so.
+        self.wide = wide
         #: `(status letter, path)` in each list. A file can be in both: staged,
         #: and then changed again on the disk. Two lines is the truth about it.
         self.unstaged: List[Tuple[str, str]] = []
@@ -1012,13 +1015,6 @@ class Staging:
 
 #: The commit page each open copy has, while it has one.
 _staging: Dict[str, Staging] = {}
-
-#: Repositories whose commit page was asked for from a panel, waiting for the
-#: full-screen copy to open. **Keyed by the repository, not by the session:**
-#: going full screen closes the view and opens it again, so the session the
-#: button was pressed in no longer exists by the time the answer arrives. Read
-#: once and dropped — whoever gets there first is who asked.
-_wanted: Dict[str, bool] = {}
 
 
 # -- the page ------------------------------------------------------------------
@@ -1131,6 +1127,38 @@ def _staging_list(work: Staging, part: str) -> dict:
     )
 
 
+def _message_part(work: Staging, weight: float) -> dict:
+    """What the commit will say, and the two buttons that do it."""
+    written = message_of(work.root, "HEAD") if work.amending else ""
+    return part(
+        "message",
+        form(
+            [
+                field(
+                    "message",
+                    kind="lines",
+                    lines=2,
+                    value=written,
+                    hint="What this commit does, and why",
+                    required=True,
+                ),
+            ],
+            [
+                button(
+                    "amending",
+                    "Stop amending" if work.amending else "Amend the last",
+                ),
+                button(
+                    "write",
+                    "Amend" if work.amending else "Commit",
+                    primary=True,
+                ),
+            ],
+        ),
+        weight=weight,
+    )
+
+
 def commit_page(work: Staging) -> dict:
     """The page a commit is written on.
 
@@ -1139,65 +1167,47 @@ def commit_page(work: Staging) -> dict:
     difference of the file under the cursor down the right, at full height.
     The lists are two because a file can be staged and changed again, and one
     list with a mark could only tell that story in a footnote.
+
+    **In a panel it is one column.** Half a window cannot hold two lists, a
+    message and a difference side by side; the same four parts go one under
+    another instead, in the order the work goes — what is out, what is in, what
+    that file looks like, and what the commit will say. Two lines for the
+    message there, not a page of them: a panel has no room to spare and a
+    subject line is what most commits are.
     """
-    written = message_of(work.root, "HEAD") if work.amending else ""
+    lists = [
+        part(
+            "unstaged",
+            _staging_list(work, "unstaged"),
+            weight=2,
+            title="Not in the commit — %d" % len(work.unstaged),
+        ),
+        part(
+            "staged",
+            _staging_list(work, "staged"),
+            weight=2,
+            title="In the commit — %d" % len(work.staged),
+        ),
+    ]
+    difference = part(
+        "diff",
+        file(work.shown) if work.shown
+        else text(work.diff or "Nothing to show for this file.",
+                  language="diff"),
+        weight=3,
+    )
+
+    if not work.wide:
+        return split(lists + [difference, _message_part(work, 1)], "vertical")
+
     return split(
         [
             part(
                 "work",
-                split(
-                    [
-                        part(
-                            "unstaged",
-                            _staging_list(work, "unstaged"),
-                            weight=2,
-                            title="Not in the commit — %d" % len(work.unstaged),
-                        ),
-                        part(
-                            "staged",
-                            _staging_list(work, "staged"),
-                            weight=2,
-                            title="In the commit — %d" % len(work.staged),
-                        ),
-                        part(
-                            "message",
-                            form(
-                                [
-                                    field(
-                                        "message",
-                                        kind="lines",
-                                        value=written,
-                                        hint="What this commit does, and why",
-                                        required=True,
-                                    ),
-                                ],
-                                [
-                                    button(
-                                        "amending",
-                                        "Stop amending" if work.amending
-                                        else "Amend the last",
-                                    ),
-                                    button(
-                                        "write",
-                                        "Amend" if work.amending else "Commit",
-                                        primary=True,
-                                    ),
-                                ],
-                            ),
-                            weight=3,
-                        ),
-                    ],
-                    "vertical",
-                ),
+                split(lists + [_message_part(work, 3)], "vertical"),
                 weight=2,
             ),
-            part(
-                "diff",
-                file(work.shown) if work.shown
-                else text(work.diff or "Nothing to show for this file.",
-                          language="diff"),
-                weight=3,
-            ),
+            difference,
         ],
         "horizontal",
     )
@@ -1621,21 +1631,15 @@ def _mark_of(index: str, tree: str) -> dict:
 
 
 def open_staging(context, at: Where) -> dict:
-    """Opens the commit page over the log — or asks for the room to do it in.
+    """Opens the commit page over the log, on whichever surface asked for it.
 
-    **In a panel it does not fit.** Two lists, what the commit will say and the
-    difference of a file, in half a window, is four things in a column each
-    three rows tall. So from a panel it asks for the whole window and is opened
-    again there, which is the one thing `fullscreen` exists for.
+    **Where you are standing is where it opens.** A panel gets the same page in
+    one column rather than being sent to the full screen: being moved somewhere
+    else to do the next thing is exactly what a page over the log exists to
+    avoid, and the panel beside this one is usually what you are committing
+    *about*.
     """
-    if context.surface != "fullscreen":
-        _wanted[at.root] = True
-        return respond(
-            actions=[fullscreen()],
-            status="Committing needs the room — opening it full screen.",
-        )
-
-    work = Staging(at.root, at.name)
+    work = Staging(at.root, at.name, wide=context.surface == "fullscreen")
     read_staging(work)
     staging_diff(work)
     _staging[context.session] = work
@@ -1742,19 +1746,7 @@ def _with_message(work: Staging, typed: str) -> dict:
 @plugin.view(VIEW_ID, "Git", "The log of the repository this folder is in.")
 def git(context, event) -> dict:
     if event.kind == "open":
-        answer = show(context)
-        # Asked for from a panel, where it does not fit. The button sent the
-        # view here; this is the copy that arrived, and the commit page is what
-        # was wanted all along. Read once, whoever gets here first.
-        folder = local_path(context.url)
-        root = repository_of(folder) if folder else None
-        if root and _wanted.pop(root, False):
-            work = Staging(root, os.path.basename(root.rstrip("/\\")) or root)
-            read_staging(work)
-            staging_diff(work)
-            _staging[context.session] = work
-            return show_staging(work, pushing=True)
-        return answer
+        return show(context)
 
     at = _at.get(context.session)
     work = _staging.get(context.session)
