@@ -449,8 +449,8 @@ def menus_of(options: Dict[str, object]) -> List[dict]:
                 },
                 {"id": "checkout", "label": "Switch to the branch being shown"},
                 {
-                    "id": "browse",
-                    "label": "Open this commit in the panel beside this one",
+                    "id": "goto.cursor",
+                    "label": "Go to the files as they were",
                 },
                 {},
                 {
@@ -1822,6 +1822,13 @@ def show(context, options: Optional[Dict[str, object]] = None,
             # handlers.
             {"id": "refresh", "label": "Refresh", "icon": "refresh",
              "tooltip": "Refresh"},
+            # The sand running: this panel, standing in the commit under the
+            # cursor. His, and it is the act the context menu offers — in the
+            # bar, where the hand can reach it without a press to open a menu
+            # first.
+            {"id": "goto.cursor", "label": "Go to the files as they were",
+             "icon": "hourglass",
+             "tooltip": "Go to the files as they were at this commit"},
             # The pair going round is the one that only asks; the arrow down
             # is the one that actually brings something onto the disk.
             {"id": "fetch", "label": "Fetch", "icon": "sync",
@@ -2700,10 +2707,6 @@ def git(context, event) -> dict:
                 {"id": "ref." + name, "label": "Show its history"},
                 {},
                 {"id": "goto" + SEP + name, "label": "Go to its files"},
-                {
-                    "id": "beside" + SEP + name,
-                    "label": "Open its files in the panel beside this one",
-                },
             ])
 
         if event.part == "log":
@@ -2715,14 +2718,15 @@ def git(context, event) -> dict:
             # "Go to it" would be an offer to go where you are.
             if commit.hash == WORKING:
                 return respond()
+            # **One way in, not two.** His: "убрать из гита контекстное меню
+            # open them in the panel beside". The same act twice, differing
+            # only in which half of the window it lands in, is a menu asking a
+            # question nobody has — and the panel beside this one is where you
+            # already are.
             return respond(context_menu=[
                 {
                     "id": "goto" + SEP + commit.hash,
                     "label": "Go to the files as they were at %s" % commit.short,
-                },
-                {
-                    "id": "beside" + SEP + commit.hash,
-                    "label": "Open them in the panel beside this one",
                 },
             ])
 
@@ -2781,10 +2785,6 @@ def git(context, event) -> dict:
             where = SEP.join((at.hash, folder, name))
             return respond(context_menu=[
                 {"id": "goto" + SEP + where, "label": "Go to it as it was"},
-                {
-                    "id": "beside" + SEP + where,
-                    "label": "Show it in the panel beside this one",
-                },
                 {},
                 {
                     "id": "goto" + SEP + at.hash,
@@ -2801,31 +2801,33 @@ def git(context, event) -> dict:
         # view is in; `beside` is the other one — a commander has two sides,
         # and the whole point of a tree at a revision is having it next to the
         # tree as it is now.
-        if event.id and (event.id.startswith("goto" + SEP)
-                         or event.id.startswith("beside" + SEP)):
+        # **This panel, and only this one.** The menu used to offer the same
+        # act twice — here, or in the panel beside this one — and he had it
+        # taken out: the other panel is where you already are, and a choice
+        # between two halves of one window is a choice nobody was asking to
+        # make.
+        if event.id and event.id.startswith("goto" + SEP):
             if at is None:
                 return respond()
             parts = event.id.split(SEP)
-            here = parts[0] == "goto"
             ref = parts[1]
             folder = parts[2] if len(parts) > 2 else ""
             name = parts[3] if len(parts) > 3 else None
 
             actions = [navigate(
                 tree_url(at.root, ref, folder),
-                panel="self" if here else "other",
+                panel="self",
                 name=name,
             )]
             # Full screen there is no panel beside this one to look at: the
             # page covers both. Going somewhere while a page stands over it is
             # not going anywhere, so the page steps aside.
-            if here and context.surface == "fullscreen":
+            if context.surface == "fullscreen":
                 actions.append(close())
-            where = "the panel beside this one" if not here else "this panel"
             if name:
-                said = "%s as it was at %s, in %s" % (name, ref[:7], where)
+                said = "%s as it was at %s, in this panel" % (name, ref[:7])
             else:
-                said = "The files as they were at %s, in %s" % (ref[:7], where)
+                said = "The files as they were at %s, in this panel" % ref[:7]
             return respond(actions=actions, status=said)
 
         if event.id and (event.id.startswith("stage" + SEP)
@@ -3009,15 +3011,28 @@ def git(context, event) -> dict:
                 ]
             )
 
-        if event.id == "browse":
+        if event.id in ("goto.cursor", "browse"):
             # Whatever the bottom half is pointed at decides which commit that
-            # is, or the tip when it is pointed at nothing.
+            # is. The working tree is the folder the panel is already standing
+            # in, so there is nowhere to go — say so rather than moving it to
+            # where it already is. (`browse` is what this was called before the
+            # button existed; answered so an older menu still works.)
             if at is None:
                 return respond()
-            ref = at.hash if at.hash and at.hash != WORKING else "HEAD"
+            if not at.hash or at.hash == WORKING:
+                return respond(actions=[notice(
+                    "The working tree is the folder this panel is in already."
+                )])
+
+            actions = [navigate(tree_url(at.root, at.hash), panel="self")]
+            # Full screen there is nothing beside this page to look at, and a
+            # page standing over the panel you have just sent somewhere is a
+            # page hiding it.
+            if context.surface == "fullscreen":
+                actions.append(close())
             return respond(
-                actions=[navigate(tree_url(at.root, ref))],
-                status="%s — opened beside this one" % (at.short or ref),
+                actions=actions,
+                status="The files as they were at %s, in this panel" % at.short,
             )
 
         if event.id and event.id.startswith("toggle."):

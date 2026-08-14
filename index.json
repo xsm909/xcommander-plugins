@@ -75,7 +75,7 @@
     "folder": "git",
     "id": "org.xcommander.git",
     "name": "Git",
-    "version": "0.29.0",
+    "version": "0.30.0",
     "description": "The repository the panel is standing in, on one page: its branches, its log with the shape of the history drawn, what each commit touched and the difference itself.",
     "runtime": "python",
     "apiVersion": 1,
@@ -101,7 +101,7 @@
     "pythonMin": null,
     "category": "Viewers",
     "icon": null,
-    "updated": null
+    "updated": "2026-08-14T22:28:16+02:00"
   },
   {
     "folder": "smb",
@@ -151,7 +151,7 @@
     "pythonMin": null,
     "category": "Viewers",
     "icon": null,
-    "updated": null
+    "updated": "2026-08-14T22:28:16+02:00"
   },
   {
     "folder": "web",

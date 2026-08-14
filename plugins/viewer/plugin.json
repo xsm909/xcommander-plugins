@@ -116,7 +116,8 @@
         "npmignore",
         "npmrc",
         "prettierignore",
-        "pylintrc"
+        "pylintrc",
+        "metadata"
       ],
       "render": {
         "kind": "text",
@@ -124,7 +125,29 @@
         "syntax": "auto",
         "maxBytes": 2097152
       },
-      "fallback": true
+      "fallback": true,
+      "names": [
+        "licence",
+        "license",
+        "copying",
+        "notice",
+        "authors",
+        "contributors",
+        "changelog",
+        "changes",
+        "readme",
+        "makefile",
+        "dockerfile",
+        "containerfile",
+        "gemfile",
+        "rakefile",
+        "procfile",
+        "vagrantfile",
+        "commit_editmsg",
+        "merge_msg",
+        "codeowners",
+        "todo"
+      ]
     },
     {
       "id": "builtin.markdown",
@@ -141,7 +164,12 @@
         "kind": "markdown",
         "encoding": "utf-8",
         "maxBytes": 4194304
-      }
+      },
+      "names": [
+        "readme",
+        "changelog",
+        "contributing"
+      ]
     },
     {
       "id": "builtin.json.pretty",
@@ -1022,7 +1050,8 @@
       "name": "YAML",
       "extensions": [
         "yaml",
-        "yml"
+        "yml",
+        "metadata"
       ],
       "lineComment": [
         "#"
@@ -1103,6 +1132,11 @@
           "match": "[+\\-.!]?[A-Za-z0-9_.\\[\\] ]+(?=\\s*=)",
           "role": "type"
         }
+      ],
+      "names": [
+        "gitconfig",
+        "npmrc",
+        "editorconfig"
       ]
     },
     {
@@ -1291,6 +1325,110 @@
         "true",
         "false",
         "default"
+      ],
+      "linePatterns": []
+    },
+    {
+      "id": "makefile",
+      "name": "Makefile",
+      "extensions": [
+        "mk",
+        "mak"
+      ],
+      "names": [
+        "makefile",
+        "gnumakefile"
+      ],
+      "lineComment": [
+        "#"
+      ],
+      "strings": [
+        {
+          "open": "\"",
+          "close": "\""
+        },
+        {
+          "open": "'",
+          "close": "'"
+        }
+      ],
+      "keywords": [
+        "include",
+        "ifeq",
+        "ifneq",
+        "ifdef",
+        "ifndef",
+        "else",
+        "endif",
+        "define",
+        "endef",
+        "export",
+        "unexport",
+        "override",
+        "vpath"
+      ],
+      "types": [
+        ".PHONY",
+        ".DEFAULT",
+        ".PRECIOUS",
+        ".SUFFIXES"
+      ],
+      "constants": [],
+      "linePatterns": [
+        {
+          "match": "[A-Za-z0-9_./$()%-]+\\s*(?=:[^=])",
+          "role": "type"
+        }
+      ]
+    },
+    {
+      "id": "dockerfile",
+      "name": "Dockerfile",
+      "extensions": [
+        "dockerfile"
+      ],
+      "names": [
+        "dockerfile",
+        "containerfile"
+      ],
+      "caseSensitive": false,
+      "lineComment": [
+        "#"
+      ],
+      "strings": [
+        {
+          "open": "\"",
+          "close": "\""
+        },
+        {
+          "open": "'",
+          "close": "'"
+        }
+      ],
+      "keywords": [
+        "from",
+        "run",
+        "cmd",
+        "label",
+        "expose",
+        "env",
+        "add",
+        "copy",
+        "entrypoint",
+        "volume",
+        "user",
+        "workdir",
+        "arg",
+        "onbuild",
+        "stopsignal",
+        "healthcheck",
+        "shell",
+        "as"
+      ],
+      "types": [],
+      "constants": [
+        "true",
+        "false"
       ],
       "linePatterns": []
     }
