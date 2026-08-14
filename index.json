@@ -1,9 +1,27 @@
 [
   {
+    "folder": "compare",
+    "id": "org.xcommander.compare",
+    "name": "Compare folders",
+    "version": "1.0.0",
+    "description": "What is only on one side, and what is on both but different. The two panels are the two sides.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Tools",
+    "icon": "compare",
+    "updated": "2026-08-13T17:11:36+02:00"
+  },
+  {
     "folder": "disk-map",
     "id": "org.xcommander.diskmap",
     "name": "Disk map",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "What is taking up the room: a ring of folders you can walk into, mark, and have the application clear away.",
     "runtime": "python",
     "apiVersion": 1,
@@ -15,7 +33,7 @@
     "pythonMin": "3.12",
     "category": "Tools",
     "icon": "chart",
-    "updated": "2026-08-09T21:30:10+02:00"
+    "updated": "2026-08-10T20:51:43+02:00"
   },
   {
     "folder": "fbx",
@@ -33,7 +51,7 @@
     "pythonMin": "3.12",
     "category": "Viewers",
     "icon": "view",
-    "updated": "2026-08-12T22:38:44+02:00"
+    "updated": "2026-08-13T07:28:53+02:00"
   },
   {
     "folder": "ftp",
@@ -51,21 +69,25 @@
     "pythonMin": "3.12",
     "category": "Transports",
     "icon": "cloud",
-    "updated": "2026-08-09T16:00:14+02:00"
+    "updated": "2026-08-10T20:51:43+02:00"
   },
   {
-    "folder": "logs",
-    "id": "org.xcommander.logs",
-    "name": "Log files",
-    "version": "1.0.0",
-    "description": "Opens .log, .out and .err files as plain text, however large they are.",
-    "runtime": "declarative",
+    "folder": "git",
+    "id": "org.xcommander.git",
+    "name": "Git",
+    "version": "0.29.0",
+    "description": "The repository the panel is standing in, on one page: its branches, its log with the shape of the history drawn, what each commit touched and the difference itself.",
+    "runtime": "python",
     "apiVersion": 1,
-    "platforms": [],
-    "pythonMin": null,
-    "category": "Viewers",
-    "icon": null,
-    "updated": "2026-08-09T10:21:10+02:00"
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Tools",
+    "icon": "icon.png",
+    "updated": "2026-08-14T18:43:52+02:00"
   },
   {
     "folder": "smb",
@@ -83,7 +105,7 @@
     "pythonMin": "3.12",
     "category": "Transports",
     "icon": "cloud",
-    "updated": "2026-08-09T16:00:14+02:00"
+    "updated": "2026-08-10T20:51:43+02:00"
   },
   {
     "folder": "sysinfo",
@@ -101,7 +123,7 @@
     "pythonMin": "3.12",
     "category": "Tools",
     "icon": "memory",
-    "updated": "2026-08-09T16:00:14+02:00"
+    "updated": "2026-08-10T20:51:43+02:00"
   },
   {
     "folder": "web",
@@ -119,7 +141,7 @@
     "pythonMin": "3.12",
     "category": "Transports",
     "icon": "cloud",
-    "updated": "2026-08-09T22:05:25+02:00"
+    "updated": "2026-08-10T20:51:43+02:00"
   },
   {
     "folder": "zip-viewer",
@@ -137,6 +159,6 @@
     "pythonMin": "3.12",
     "category": "Archives",
     "icon": "archive",
-    "updated": "2026-08-09T16:00:14+02:00"
+    "updated": "2026-08-10T20:51:43+02:00"
   }
 ]
