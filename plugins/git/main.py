@@ -38,6 +38,8 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from xcommander import (
     DIRECTORY,
     ask,
+    back,
+    button,
     cell,
     close,
     chip,
@@ -45,7 +47,11 @@ from xcommander import (
     Entry,
     FILE,
     FileSystem,
+    field,
+    form,
+    fullscreen,
     lay_out,
+    page,
     Plugin,
     RpcError,
     file,
@@ -976,6 +982,45 @@ _log_cache: Dict[str, List[Commit]] = {}
 _options: Dict[str, Dict[str, object]] = {}
 
 
+class Staging:
+    """The commit being written: what is in it, what is not, and what it says.
+
+    A page of its own over the log — see [commit_page]. It is not a dialog and
+    not another tool: the log is underneath it and Escape goes back to it, the
+    way going into a folder and back out works everywhere else.
+    """
+
+    __slots__ = ("root", "name", "unstaged", "staged", "part", "rows",
+                 "diff", "shown", "amending")
+
+    def __init__(self, root: str, name: str) -> None:
+        self.root = root
+        self.name = name
+        #: `(status letter, path)` in each list. A file can be in both: staged,
+        #: and then changed again on the disk. Two lines is the truth about it.
+        self.unstaged: List[Tuple[str, str]] = []
+        self.staged: List[Tuple[str, str]] = []
+        #: Which list the difference on the right is showing, and where each
+        #: list's cursor was when it was last heard from.
+        self.part = "unstaged"
+        self.rows: Dict[str, int] = {"unstaged": 0, "staged": 0}
+        self.diff = ""
+        self.shown = ""
+        #: Whether this commit replaces the last one rather than following it.
+        self.amending = False
+
+
+#: The commit page each open copy has, while it has one.
+_staging: Dict[str, Staging] = {}
+
+#: Repositories whose commit page was asked for from a panel, waiting for the
+#: full-screen copy to open. **Keyed by the repository, not by the session:**
+#: going full screen closes the view and opens it again, so the session the
+#: button was pressed in no longer exists by the time the answer arrives. Read
+#: once and dropped — whoever gets there first is who asked.
+_wanted: Dict[str, bool] = {}
+
+
 # -- the page ------------------------------------------------------------------
 
 
@@ -1013,6 +1058,178 @@ def _files_content(at: Where) -> dict:
         [column("", kind="icon"), column("File", flex=1)],
         [row([_mark(status), path]) for status, path in at.files],
     )
+
+
+def read_staging(work: Staging) -> None:
+    """Reads both lists off the working tree.
+
+    One `status` call for both, because they are two halves of one answer: the
+    first column is what the index has that HEAD has not — the next commit —
+    and the second is what the disk has that the index has not.
+    """
+    work.unstaged = []
+    work.staged = []
+    for index, tree, path in working_tree(work.root):
+        if index not in (" ", "?"):
+            work.staged.append((index, path))
+        if tree != " " or index == "?":
+            work.unstaged.append(("?" if index == "?" else tree, path))
+
+    for part in ("unstaged", "staged"):
+        rows = len(work.unstaged if part == "unstaged" else work.staged)
+        if work.rows[part] >= rows:
+            work.rows[part] = max(0, rows - 1)
+
+
+def staging_diff(work: Staging) -> None:
+    """Points the right-hand side at the file under the cursor."""
+    work.diff = ""
+    work.shown = ""
+    listing = work.unstaged if work.part == "unstaged" else work.staged
+    at_row = work.rows.get(work.part, 0)
+    if not listing or at_row >= len(listing):
+        return
+    status, path = listing[at_row]
+
+    if status == "?":
+        if looks_binary(os.path.join(work.root, path)):
+            work.shown = "file://" + quote(os.path.join(work.root, path))
+            return
+        work.diff = untracked_diff(work.root, path)
+        return
+
+    if worktree_is_binary(work.root, path):
+        work.shown = "file://" + quote(os.path.join(work.root, path))
+        return
+
+    if work.part == "staged":
+        # What the next commit *is*, not what the disk has since. A file
+        # staged and then changed again shows one thing in each list, which is
+        # the reason for two lists rather than one with a mark.
+        work.diff = (run(work.root, "diff", "--no-color", "--cached", "--",
+                         path) or "").lstrip("\n")
+    else:
+        work.diff = (run(work.root, "diff", "--no-color", "--", path)
+                     or "").lstrip("\n")
+
+
+def _staging_list(work: Staging, part: str) -> dict:
+    """One of the two lists, with a mark per row saying what happened."""
+    listing = work.unstaged if part == "unstaged" else work.staged
+    return table(
+        [column("", kind="icon"), column("File", flex=1)],
+        [
+            row(
+                [_mark(status) if status != "?"
+                 else cell("never added", icon="untracked"), path],
+                # Staged is what the commit is made of, and stands out; the
+                # rest is `pending` — there, real, and not going anywhere yet.
+                role="accent" if part == "staged" else "pending",
+            )
+            for status, path in listing
+        ],
+    )
+
+
+def commit_page(work: Staging) -> dict:
+    """The page a commit is written on.
+
+    Fork's arrangement, and he chose it from three: the work down the left —
+    what is not in the commit, what is, and what it will say — and the
+    difference of the file under the cursor down the right, at full height.
+    The lists are two because a file can be staged and changed again, and one
+    list with a mark could only tell that story in a footnote.
+    """
+    written = message_of(work.root, "HEAD") if work.amending else ""
+    return split(
+        [
+            part(
+                "work",
+                split(
+                    [
+                        part(
+                            "unstaged",
+                            _staging_list(work, "unstaged"),
+                            weight=2,
+                            title="Not in the commit — %d" % len(work.unstaged),
+                        ),
+                        part(
+                            "staged",
+                            _staging_list(work, "staged"),
+                            weight=2,
+                            title="In the commit — %d" % len(work.staged),
+                        ),
+                        part(
+                            "message",
+                            form(
+                                [
+                                    field(
+                                        "message",
+                                        kind="lines",
+                                        value=written,
+                                        hint="What this commit does, and why",
+                                        required=True,
+                                    ),
+                                ],
+                                [
+                                    button(
+                                        "amending",
+                                        "Stop amending" if work.amending
+                                        else "Amend the last",
+                                    ),
+                                    button(
+                                        "write",
+                                        "Amend" if work.amending else "Commit",
+                                        primary=True,
+                                    ),
+                                ],
+                            ),
+                            weight=3,
+                        ),
+                    ],
+                    "vertical",
+                ),
+                weight=2,
+            ),
+            part(
+                "diff",
+                file(work.shown) if work.shown
+                else text(work.diff or "Nothing to show for this file.",
+                          language="diff"),
+                weight=3,
+            ),
+        ],
+        "horizontal",
+    )
+
+
+def staging_status(work: Staging) -> str:
+    """The line along the bottom: what pressing a row will do."""
+    return "%s — %d in the commit, %d not. %s" % (
+        work.name,
+        len(work.staged),
+        len(work.unstaged),
+        "Enter moves a file between the lists; Ctrl+Enter writes the commit.",
+    )
+
+
+def show_staging(work: Staging, pushing: bool = False,
+                 said: Optional[str] = None) -> dict:
+    """The commit page, drawn — pushed over the log the first time only."""
+    body = respond(
+        content=commit_page(work),
+        title="Amending in %s" % work.name if work.amending
+        else "Committing in %s" % work.name,
+        status=said or staging_status(work),
+        # Nothing of the log's belongs to this page. The pill says a branch you
+        # cannot switch from here, and the buttons are about a repository, not
+        # about a commit being written.
+        commands=[],
+        menus=[],
+    )
+    if pushing:
+        body["actions"] = [page()]
+    return body
 
 
 def _detail_title(at: Where) -> str:
@@ -1355,6 +1572,13 @@ def show(context, options: Optional[Dict[str, object]] = None,
                 "icon": "aside",
                 "tooltip": "Put the changes aside and leave the tree clean",
             },
+            {
+                "id": "commit",
+                "label": "Commit",
+                "icon": "write",
+                "tooltip": "Write down what has changed — the page opens over "
+                "the log",
+            },
         ],
     )
 
@@ -1396,12 +1620,159 @@ def _mark_of(index: str, tree: str) -> dict:
     return _mark(tree)
 
 
+def open_staging(context, at: Where) -> dict:
+    """Opens the commit page over the log — or asks for the room to do it in.
+
+    **In a panel it does not fit.** Two lists, what the commit will say and the
+    difference of a file, in half a window, is four things in a column each
+    three rows tall. So from a panel it asks for the whole window and is opened
+    again there, which is the one thing `fullscreen` exists for.
+    """
+    if context.surface != "fullscreen":
+        _wanted[at.root] = True
+        return respond(
+            actions=[fullscreen()],
+            status="Committing needs the room — opening it full screen.",
+        )
+
+    work = Staging(at.root, at.name)
+    read_staging(work)
+    staging_diff(work)
+    _staging[context.session] = work
+    return show_staging(work, pushing=True)
+
+
+def staging_event(context, work: Staging, event) -> Optional[dict]:
+    """What happens on the commit page. None means "not mine, try the log".
+
+    The whole page is here rather than spread through the log's handler,
+    because the two pages share nothing: a row number in "staged" and a row
+    number in the log are different questions with the same shape.
+    """
+    if event.kind == "cursor" and event.part in ("unstaged", "staged"):
+        at_row = event.row
+        if at_row is None or at_row < 0:
+            return respond()
+        work.part = event.part
+        work.rows[event.part] = at_row
+        staging_diff(work)
+        return show_staging(work)
+
+    if event.kind == "activate" and event.part in ("unstaged", "staged"):
+        at_row = event.row
+        if at_row is None or at_row < 0:
+            return respond()
+        listing = work.unstaged if event.part == "unstaged" else work.staged
+        if at_row >= len(listing):
+            return respond()
+        _, path = listing[at_row]
+
+        # No question asked, and deliberately. Elsewhere staging is one press
+        # among many and has to say what it is; this page exists for nothing
+        # else, the file moves from one list to the other where it can be seen,
+        # and the same press on the other side puts it back.
+        if event.part == "unstaged":
+            done, said = do(work.root, "add", "--", path)
+        else:
+            done, said = do(work.root, "restore", "--staged", "--", path)
+        if not done:
+            return respond(actions=[notice(said)])
+
+        work.part = event.part
+        work.rows[event.part] = at_row
+        read_staging(work)
+        staging_diff(work)
+        return show_staging(work)
+
+    if event.kind == "button":
+        if event.id == "amending":
+            # The message the user has already written wins over both: turning
+            # amending on with something typed keeps it, and turning it off
+            # never takes back what they wrote.
+            typed = str(event.values.get("message") or "")
+            work.amending = not work.amending
+            answer = show_staging(work)
+            if typed.strip():
+                answer["content"] = _with_message(work, typed)
+            return answer
+
+        if event.id == "write":
+            message = str(event.values.get("message") or "").strip()
+            if not message:
+                return respond(actions=[notice("A commit says what it does.")])
+            if not work.staged and not work.amending:
+                return respond(actions=[notice(
+                    "Nothing is in the commit yet. Enter on a file puts it in."
+                )])
+
+            args = ["commit", "-m", message]
+            if work.amending:
+                args.append("--amend")
+            done, said = do(work.root, *args)
+            if not done:
+                return respond(actions=[notice(said)])
+
+            # Back to the log, which is where a written commit belongs — and
+            # the log redraws itself when it gets there, because it is now a
+            # different log.
+            _staging.pop(context.session, None)
+            return respond(
+                actions=[back()],
+                status=first_line(said, "Committed."),
+            )
+
+    return None
+
+
+def _with_message(work: Staging, typed: str) -> dict:
+    """The page again with the message the user had, kept across a redraw.
+
+    The host keeps what is being typed while the *declared* value stays as it
+    was; here the declaration itself changes — amending fills it in — so the
+    one case that has to be said out loud is "changed, and back to what they
+    wrote".
+    """
+    content = commit_page(work)
+    for one in content["parts"][0]["content"]["parts"]:
+        if one["id"] == "message":
+            one["content"]["fields"][0]["value"] = typed
+    return content
+
+
 @plugin.view(VIEW_ID, "Git", "The log of the repository this folder is in.")
 def git(context, event) -> dict:
     if event.kind == "open":
-        return show(context)
+        answer = show(context)
+        # Asked for from a panel, where it does not fit. The button sent the
+        # view here; this is the copy that arrived, and the commit page is what
+        # was wanted all along. Read once, whoever gets here first.
+        folder = local_path(context.url)
+        root = repository_of(folder) if folder else None
+        if root and _wanted.pop(root, False):
+            work = Staging(root, os.path.basename(root.rstrip("/\\")) or root)
+            read_staging(work)
+            staging_diff(work)
+            _staging[context.session] = work
+            return show_staging(work, pushing=True)
+        return answer
 
     at = _at.get(context.session)
+    work = _staging.get(context.session)
+
+    # The page over the log has been taken off — by Escape, by Back, or by the
+    # commit that finished. The host has already drawn what it kept; what it
+    # kept is a log from before any of this, so it is read again.
+    if event.kind == "back":
+        _staging.pop(context.session, None)
+        return show(context, _options.get(context.session))
+
+    # Everything below happens on the log. The commit page is a page of its
+    # own with parts of its own, and answering its rows against the log's would
+    # be two pages sharing one set of row numbers.
+    if work is not None and event.kind != "back":
+        answer = staging_event(context, work, event)
+        if answer is not None:
+            return answer
 
     # The cursor coming to rest, and a row being opened, mean the same thing on
     # this page: show me that one. There is nowhere to *go* — the log stays
@@ -1429,6 +1800,11 @@ def git(context, event) -> dict:
             commits = _log_cache.get(context.session) or []
             if at_row >= len(commits):
                 return respond()
+            # The working tree opened is the commit being written. It is the
+            # one row in the log that is not a commit yet, and opening a thing
+            # is how you get into it everywhere else in this application.
+            if event.kind == "activate" and commits[at_row].hash == WORKING:
+                return open_staging(context, at)
             select_commit(at, commits[at_row])
             return redraw(context.session, at)
 
@@ -1648,6 +2024,11 @@ def git(context, event) -> dict:
 
         if event.id == "refresh":
             return show(context, options)
+
+        if event.id == "commit":
+            if at is None:
+                return respond()
+            return open_staging(context, at)
 
         # The four that are about somewhere else. Fetch only *reads*, so it
         # goes on the press alone; the three that change something ask first,
