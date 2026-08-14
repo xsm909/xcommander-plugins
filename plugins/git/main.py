@@ -403,13 +403,36 @@ def setting(options: Dict[str, object], key: str) -> object:
 
 
 def menus_of(options: Dict[str, object]) -> List[dict]:
+    """The menu the tool brings with it while it is on screen.
+
+    Everything the buttons in the bar do is here too, with its name spelled
+    out. A row of glyphs is quick for the hand that already knows them and says
+    nothing to the one that does not, and the answer to that is not a longer
+    tooltip — it is the same commands written down where commands are written
+    down in every application.
+    """
     return [
+        {
+            "label": "Git",
+            "accelerator": "g",
+            "items": [
+                # First, and on its own: the only one of these that touches
+                # nothing. It re-reads what is on the disk — no server, no
+                # commit, no file moved.
+                {"id": "refresh", "label": "Read it again", "shortcut": "F5"},
+                {},
+                {"id": "fetch", "label": "Fetch from the remotes"},
+                {"id": "pull", "label": "Pull into this branch"},
+                {"id": "push", "label": "Push what is committed"},
+                {},
+                {"id": "commit", "label": "Commit…"},
+                {"id": "stash", "label": "Put the changes aside"},
+            ],
+        },
         {
             "label": "Repository",
             "accelerator": "r",
             "items": [
-                {"id": "refresh", "label": "Read it again", "shortcut": "F5"},
-                {},
                 {
                     "id": "toggle.sidebar",
                     "label": "Branches, tags and remotes down the side",
@@ -1143,15 +1166,18 @@ def _message_part(work: Staging, weight: float) -> dict:
                     required=True,
                 ),
             ],
+            # Two words between them. A panel gives this strip the width of
+            # half a window and the buttons are what has to fit in it.
             [
-                button(
-                    "amending",
-                    "Stop amending" if work.amending else "Amend the last",
-                ),
+                button("amending", "Amending" if work.amending else "Amend"),
                 button(
                     "write",
-                    "Amend" if work.amending else "Commit",
+                    "Commit",
                     primary=True,
+                    # One press writes it down. The other thing anybody does
+                    # straight afterwards stands behind the arrow rather than
+                    # taking a button of its own beside it.
+                    items=[button("write.push", "Commit and push")],
                 ),
             ],
         ),
@@ -1198,7 +1224,9 @@ def commit_page(work: Staging) -> dict:
     )
 
     if not work.wide:
-        return split(lists + [difference, _message_part(work, 1)], "vertical")
+        # Two lines of message need a share of the height, not the crumbs left
+        # over: at one part in nine of a panel it was a box nothing fitted in.
+        return split(lists + [difference, _message_part(work, 2)], "vertical")
 
     return split(
         [
@@ -1214,13 +1242,13 @@ def commit_page(work: Staging) -> dict:
 
 
 def staging_status(work: Staging) -> str:
-    """The line along the bottom: what pressing a row will do."""
-    return "%s — %d in the commit, %d not. %s" % (
-        work.name,
-        len(work.staged),
-        len(work.unstaged),
-        "Enter moves a file between the lists; Ctrl+Enter writes the commit.",
-    )
+    """The line along the bottom: what pressing a row will do.
+
+    **What is in the commit is not said here.** Each list has a title saying
+    how many are in it, three feet above this line, and a status bar that
+    repeats what the page already says is a status bar nobody reads.
+    """
+    return "Enter moves a file between the lists; Ctrl+Enter writes the commit."
 
 
 def show_staging(work: Staging, pushing: bool = False,
@@ -1228,12 +1256,15 @@ def show_staging(work: Staging, pushing: bool = False,
     """The commit page, drawn — pushed over the log the first time only."""
     body = respond(
         content=commit_page(work),
-        title="Amending in %s" % work.name if work.amending
-        else "Committing in %s" % work.name,
+        # The repository is named by the panel this page is standing in, and
+        # by the log underneath it. Naming it a third time in the one row a
+        # panel has for a title spends that row on nothing.
+        title="Amending" if work.amending else "Commit",
         status=said or staging_status(work),
-        # Nothing of the log's belongs to this page. The pill says a branch you
-        # cannot switch from here, and the buttons are about a repository, not
-        # about a commit being written.
+        # Nothing of the log's belongs to this page. The pill says a branch
+        # you cannot switch from here, the buttons are about a repository
+        # rather than about a commit being written, and the menu is the same
+        # list of them in words.
         commands=[],
         menus=[],
     )
@@ -1556,39 +1587,18 @@ def show(context, options: Optional[Dict[str, object]] = None,
             # the order the work goes: look again, catch up, hand over, put
             # aside. Each of the last three asks first or refuses; see the
             # handlers.
-            {"id": "refresh", "label": "Read it again", "icon": "refresh"},
-            {
-                "id": "fetch",
-                "label": "Fetch",
-                "icon": "download",
-                "tooltip": "Ask the remotes what they have — nothing here "
-                "changes",
-            },
-            {
-                "id": "pull",
-                "label": "Pull",
-                "icon": "sync",
-                "tooltip": "Bring what the remote has into %s" % (branch or "here"),
-            },
-            {
-                "id": "push",
-                "label": "Push",
-                "icon": "upload",
-                "tooltip": "Hand what is committed here to the remote",
-            },
-            {
-                "id": "stash",
-                "label": "Put aside",
-                "icon": "aside",
-                "tooltip": "Put the changes aside and leave the tree clean",
-            },
-            {
-                "id": "commit",
-                "label": "Commit",
-                "icon": "write",
-                "tooltip": "Write down what has changed — the page opens over "
-                "the log",
-            },
+            {"id": "refresh", "label": "Refresh", "icon": "refresh",
+             "tooltip": "Refresh"},
+            {"id": "fetch", "label": "Fetch", "icon": "download",
+             "tooltip": "Fetch"},
+            {"id": "pull", "label": "Pull", "icon": "sync",
+             "tooltip": "Pull"},
+            {"id": "push", "label": "Push", "icon": "upload",
+             "tooltip": "Push"},
+            {"id": "stash", "label": "Stash", "icon": "aside",
+             "tooltip": "Stash"},
+            {"id": "commit", "label": "Commit", "icon": "write",
+             "tooltip": "Commit"},
         ],
     )
 
@@ -1669,16 +1679,24 @@ def staging_event(context, work: Staging, event) -> Optional[dict]:
         listing = work.unstaged if event.part == "unstaged" else work.staged
         if at_row >= len(listing):
             return respond()
-        _, path = listing[at_row]
+
+        # **What is picked out is what it is about**, and the row under the
+        # cursor when nothing is — the rule a panel has always followed, now
+        # that a plugin's listing can be marked at all. Ten files chosen with
+        # Insert go in with one press of Enter.
+        chosen = [row_at for row_at in event.marked if row_at < len(listing)]
+        if at_row not in chosen:
+            chosen = [at_row]
+        paths = [listing[row_at][1] for row_at in chosen]
 
         # No question asked, and deliberately. Elsewhere staging is one press
         # among many and has to say what it is; this page exists for nothing
         # else, the file moves from one list to the other where it can be seen,
         # and the same press on the other side puts it back.
         if event.part == "unstaged":
-            done, said = do(work.root, "add", "--", path)
+            done, said = do(work.root, "add", "--", *paths)
         else:
-            done, said = do(work.root, "restore", "--staged", "--", path)
+            done, said = do(work.root, "restore", "--staged", "--", *paths)
         if not done:
             return respond(actions=[notice(said)])
 
@@ -1686,7 +1704,13 @@ def staging_event(context, work: Staging, event) -> Optional[dict]:
         work.rows[event.part] = at_row
         read_staging(work)
         staging_diff(work)
-        return show_staging(work)
+        answer = show_staging(work)
+        if len(paths) > 1:
+            answer["status"] = "%d files %s." % (
+                len(paths),
+                "put in" if event.part == "unstaged" else "taken out",
+            )
+        return answer
 
     if event.kind == "button":
         if event.id == "amending":
@@ -1700,7 +1724,7 @@ def staging_event(context, work: Staging, event) -> Optional[dict]:
                 answer["content"] = _with_message(work, typed)
             return answer
 
-        if event.id == "write":
+        if event.id in ("write", "write.push"):
             message = str(event.values.get("message") or "").strip()
             if not message:
                 return respond(actions=[notice("A commit says what it does.")])
@@ -1716,14 +1740,24 @@ def staging_event(context, work: Staging, event) -> Optional[dict]:
             if not done:
                 return respond(actions=[notice(said)])
 
+            written = first_line(said, "Committed.")
+            if event.id == "write.push":
+                # The one that leaves the machine, and it is not asked about
+                # here: the arrow it was chosen from said what it does, and
+                # being asked again a second later is being asked twice.
+                pushed, told = reach(work.root, "push")
+                written = "%s %s" % (
+                    written, first_line(told, "Pushed." if pushed else "")
+                )
+                if not pushed:
+                    _staging.pop(context.session, None)
+                    return respond(actions=[back(), notice(told)])
+
             # Back to the log, which is where a written commit belongs — and
             # the log redraws itself when it gets there, because it is now a
             # different log.
             _staging.pop(context.session, None)
-            return respond(
-                actions=[back()],
-                status=first_line(said, "Committed."),
-            )
+            return respond(actions=[back()], status=written)
 
     return None
 
