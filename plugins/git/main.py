@@ -2048,12 +2048,19 @@ def git(context, event) -> dict:
             )
             return answer
 
+        paths = subject.split(RS)
         if kind == "stage":
-            done, said = do(at.root, "add", "--", subject)
+            done, said = do(at.root, "add", "--", *paths)
         elif kind == "unstage":
-            done, said = do(at.root, "restore", "--staged", "--", subject)
+            done, said = do(at.root, "restore", "--staged", "--", *paths)
         elif kind == "discard":
-            done, said = do(at.root, "restore", "--", subject)
+            # Both sides of it: a file staged and then changed again has two
+            # versions to put back, and one of them is not what "discard"
+            # means to anybody.
+            done, said = do(at.root, "restore", "--staged", "--worktree", "--",
+                            *paths)
+            if not done:
+                done, said = do(at.root, "restore", "--", *paths)
         else:
             return respond()
 
@@ -2061,6 +2068,9 @@ def git(context, event) -> dict:
             return respond(actions=[notice(said)])
         # The tree is a different tree now, and the whole page has to say so:
         # the row at the head of the log counts what has changed.
+        return show(context, _options.get(context.session))
+
+    if event.kind == "deleted" and at is not None:
         return show(context, _options.get(context.session))
 
     if event.kind == "mark" and at is not None:
@@ -2111,16 +2121,55 @@ def git(context, event) -> dict:
             status, path = at.files[at_row]
 
             if at.hash == WORKING:
-                index = (status + "  ")[0]
-                if index not in (" ", "?"):
-                    return respond(context_menu=[{
-                        "id": "unstage" + SEP + path,
-                        "label": "Take it out of the next commit",
-                    }])
-                return respond(context_menu=[{
-                    "id": "stage" + SEP + path,
-                    "label": "Put it in the next commit",
-                }])
+                # The same three things the commit page offers, because it is
+                # the same file in the same state — a menu that depended on
+                # which list you were looking at would be two answers to one
+                # question.
+                chosen = [row_at for row_at in event.marked
+                          if row_at < len(at.files)]
+                if at_row not in chosen:
+                    chosen = [at_row]
+                # `one` rather than `at`: the row index would shadow the
+                # `Where` this whole handler is about, and it did.
+                paths = [at.files[one][1] for one in chosen]
+                staged = [at.files[one][1] for one in chosen
+                          if (at.files[one][0] + "  ")[0] not in (" ", "?")]
+                fresh = [at.files[one][1] for one in chosen
+                         if "?" in at.files[one][0]]
+                tracked = [one for one in paths if one not in fresh]
+                many = len(chosen) > 1
+
+                rows: List[dict] = []
+                if len(staged) == len(chosen):
+                    rows.append({
+                        "id": "unstage" + SEP + RS.join(paths),
+                        "label": "Take %s out of the next commit"
+                        % ("them" if many else "it"),
+                    })
+                else:
+                    rows.append({
+                        "id": "stage" + SEP + RS.join(paths),
+                        "label": "Put %s in the next commit"
+                        % ("them" if many else "it"),
+                    })
+                if tracked:
+                    rows.append({})
+                    rows.append({
+                        "id": "discard" + SEP + RS.join(tracked),
+                        "label": "Discard the changes to %s"
+                        % (("%d files" % len(tracked)) if len(tracked) > 1
+                           else os.path.basename(tracked[0])),
+                    })
+                if fresh:
+                    if not tracked:
+                        rows.append({})
+                    rows.append({
+                        "id": "remove" + SEP + RS.join(fresh),
+                        "label": "Delete %s"
+                        % (("%d new files" % len(fresh)) if len(fresh) > 1
+                           else os.path.basename(fresh[0])),
+                    })
+                return respond(context_menu=rows)
 
             # A file the commit deleted is not in the commit's tree, so there
             # is nowhere to send a panel to look at it.
@@ -2179,18 +2228,45 @@ def git(context, event) -> dict:
             return respond(actions=actions, status=said)
 
         if event.id and (event.id.startswith("stage" + SEP)
-                         or event.id.startswith("unstage" + SEP)):
+                         or event.id.startswith("unstage" + SEP)
+                         or event.id.startswith("discard" + SEP)
+                         or event.id.startswith("remove" + SEP)):
             if at is None:
                 return respond()
-            kind, _, path = event.id.partition(SEP)
+            kind, _, subject = event.id.partition(SEP)
+            paths = subject.split(RS)
+            named = ("%d files" % len(paths)) if len(paths) > 1 else paths[0]
+
+            if kind == "remove":
+                # The host deletes, asks in the application's own words, and
+                # uses the recycle bin — a plugin does not get to go round it.
+                return respond(actions=[delete([
+                    "file://" + quote(os.path.join(at.root, path))
+                    for path in paths
+                ])])
+
             if kind == "unstage":
-                title, confirm = "Take %s out of the next commit?" % path, "Unstage"
+                title, confirm = "Take %s out of the next commit?" % named, "Unstage"
+                danger = False
+            elif kind == "stage":
+                title, confirm = "Put %s in the next commit?" % named, "Stage"
+                danger = False
             else:
-                title, confirm = "Put %s in the next commit?" % path, "Stage"
-            _pending["%s:%s" % (context.session, kind)] = (kind, path)
-            return respond(
-                actions=[ask(kind, title, "In %s." % at.name, confirm=confirm)]
-            )
+                title, confirm = "Throw away the changes to %s?" % named, "Discard"
+                danger = True
+
+            _pending["%s:%s" % (context.session, kind)] = (kind, subject)
+            return respond(actions=[ask(
+                kind,
+                title,
+                "In %s.%s" % (
+                    at.name,
+                    " This cannot be undone: what is thrown away was never "
+                    "committed." if danger else "",
+                ),
+                confirm=confirm,
+                danger=danger,
+            )])
 
         if event.id == "refresh":
             return show(context, options)
