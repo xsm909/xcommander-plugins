@@ -34,7 +34,7 @@ import hashlib
 import os
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from urllib.parse import quote, unquote, urlparse
 
 from xcommander import (
@@ -43,11 +43,8 @@ from xcommander import (
     column,
     delete,
     navigate,
-    notice,
-    part,
     respond,
     row,
-    split,
     table,
     text,
 )
