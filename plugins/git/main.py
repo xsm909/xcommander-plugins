@@ -1251,7 +1251,7 @@ def _files_content(at: Where) -> dict:
                 # sentence per row.
                 column("", kind="icon"),
                 column("", kind="icon"),
-                column("File", flex=1),
+                column("File", flex=1, kind="path"),
             ],
             [
                 row(
@@ -1271,7 +1271,7 @@ def _files_content(at: Where) -> dict:
         )
 
     return table(
-        [column("", kind="icon"), column("File", flex=1)],
+        [column("", kind="icon"), column("File", flex=1, kind="path")],
         [row([_mark(status), path]) for status, path in at.files],
     )
 
@@ -1348,10 +1348,16 @@ def staging_diff(work: Staging) -> None:
 
 
 def _staging_list(work: Staging, part: str) -> dict:
-    """One of the two lists, with a mark per row saying what happened."""
+    """One of the two lists, with a mark per row saying what happened.
+
+    The path column is declared as one: side by side the lists are half as wide
+    as they were, and a path cut at its end loses the file's name — which is
+    the half anybody is looking for. The host writes it short and answers the
+    mouse with the whole of it.
+    """
     listing = work.unstaged if part == "unstaged" else work.staged
     return table(
-        [column("", kind="icon"), column("File", flex=1)],
+        [column("", kind="icon"), column("File", flex=1, kind="path")],
         [
             row(
                 [_mark(status) if status != "?"
@@ -1443,11 +1449,25 @@ def commit_page(work: Staging) -> dict:
         # over: at one part in nine of a panel it was a box nothing fitted in.
         return split(lists + [difference, _message_part(work, 2)], "vertical")
 
+    # **The two lists side by side**, his: *"на странице комита stage и список
+    # изменённых файлов упаковываем в горизонталь"*. One above the other, each
+    # was a narrow column of paths in a page that had width to spare — and what
+    # a person compares here is the two lists against each other.
     return split(
         [
             part(
                 "work",
-                split(lists + [_message_part(work, 3)], "vertical"),
+                split(
+                    [
+                        part(
+                            "lists",
+                            split(lists, "horizontal"),
+                            weight=3,
+                        ),
+                        _message_part(work, 2),
+                    ],
+                    "vertical",
+                ),
                 weight=2,
             ),
             difference,
@@ -2219,7 +2239,10 @@ def _stash_detail(work: Stashes) -> dict:
             part(
                 "files",
                 table(
-                    [column("", kind="icon"), column("File", flex=1)],
+                    [
+                        column("", kind="icon"),
+                        column("File", flex=1, kind="path"),
+                    ],
                     [
                         row(
                             [
