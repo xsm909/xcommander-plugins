@@ -39,6 +39,7 @@ from xcommander import (
     DIRECTORY,
     ask,
     cell,
+    close,
     chip,
     column,
     Entry,
@@ -634,6 +635,14 @@ def diff_of(root: str, hash: str, path: str) -> str:
     return (body or "").lstrip("\n")
 
 
+#: What a context-menu id keeps its subject behind. A row of a menu carries an
+#: id and nothing else, so which commit — and which file in it — travels in the
+#: id itself rather than in a table that would have to be kept in step with the
+#: menu the user is looking at. A control character, because a branch name and
+#: a path may hold anything else.
+SEP = "\x1f"
+
+
 # -- a commit as a folder -------------------------------------------------------
 
 
@@ -673,6 +682,12 @@ class GitFileSystem(FileSystem):
     """
 
     scheme = "git"
+
+    #: History cannot be written to, and the panel is told so rather than left
+    #: to find out: the keys that would change a file go dim, and the clock
+    #: below marks the panel so nobody takes a commit for the working tree.
+    writable = False
+    icon = "history"
 
     def __init__(self) -> None:
         #: The last blob read, so scrolling a file does not re-run git for
@@ -1316,51 +1331,134 @@ def git(context, event) -> dict:
         return show(context, _options.get(context.session))
 
     if event.kind == "mark" and at is not None:
-        # The secondary press sends the panel beside this one *into* the
-        # commit. A commander already has two sides; the point of a tree at a
-        # revision is having it next to the tree as it is now.
+        # The secondary press *offers*, it does not act. It used to do a
+        # different thing on every part of the page with nothing said about
+        # any of them: on a commit it sent the panel beside this one into that
+        # commit, and two rows lower, in the working tree, the same press
+        # staged a file. Both are still here — with their names on them.
         at_row = event.row
-        if event.part == "refs" and at_row is not None and 0 <= at_row < len(at.rows):
+        if at_row is None or at_row < 0:
+            return respond()
+
+        if event.part == "refs" and at_row < len(at.rows):
             name = at.rows[at_row]
             if name is None:
                 return respond()
-            return respond(
-                actions=[navigate(tree_url(at.root, name))],
-                status="%s — opened beside this one" % name,
-            )
+            return respond(context_menu=[
+                {"id": "ref." + name, "label": "Show its history"},
+                {},
+                {"id": "goto" + SEP + name, "label": "Go to its files"},
+                {
+                    "id": "beside" + SEP + name,
+                    "label": "Open its files in the panel beside this one",
+                },
+            ])
 
-        if (event.part == "files" and at.hash == WORKING
-                and at_row is not None and 0 <= at_row < len(at.files)):
-            state, path = at.files[at_row]
-            index = (state + "  ")[0]
-            if index not in (" ", "?"):
-                kind, title, confirm = (
-                    "unstage",
-                    "Take %s out of the next commit?" % path,
-                    "Unstage",
-                )
+        if event.part == "log":
+            commits = _log_cache.get(context.session) or []
+            if at_row >= len(commits):
+                return respond()
+            commit = commits[at_row]
+            # The working tree is the folder the panel is already standing in.
+            # "Go to it" would be an offer to go where you are.
+            if commit.hash == WORKING:
+                return respond()
+            return respond(context_menu=[
+                {
+                    "id": "goto" + SEP + commit.hash,
+                    "label": "Go to the files as they were at %s" % commit.short,
+                },
+                {
+                    "id": "beside" + SEP + commit.hash,
+                    "label": "Open them in the panel beside this one",
+                },
+            ])
+
+        if event.part == "files" and at_row < len(at.files):
+            status, path = at.files[at_row]
+
+            if at.hash == WORKING:
+                index = (status + "  ")[0]
+                if index not in (" ", "?"):
+                    return respond(context_menu=[{
+                        "id": "unstage" + SEP + path,
+                        "label": "Take it out of the next commit",
+                    }])
+                return respond(context_menu=[{
+                    "id": "stage" + SEP + path,
+                    "label": "Put it in the next commit",
+                }])
+
+            # A file the commit deleted is not in the commit's tree, so there
+            # is nowhere to send a panel to look at it.
+            if not at.hash or status == "D":
+                return respond()
+
+            folder, _, name = path.rpartition("/")
+            where = SEP.join((at.hash, folder, name))
+            return respond(context_menu=[
+                {"id": "goto" + SEP + where, "label": "Go to it as it was"},
+                {
+                    "id": "beside" + SEP + where,
+                    "label": "Show it in the panel beside this one",
+                },
+                {},
+                {
+                    "id": "goto" + SEP + at.hash,
+                    "label": "Go to the whole commit",
+                },
+            ])
+
+        return respond()
+
+    if event.kind == "button":
+        options = _options.get(context.session, dict(plugin.settings))
+
+        # What the context menu offers, carried out. `goto` is the panel this
+        # view is in; `beside` is the other one — a commander has two sides,
+        # and the whole point of a tree at a revision is having it next to the
+        # tree as it is now.
+        if event.id and (event.id.startswith("goto" + SEP)
+                         or event.id.startswith("beside" + SEP)):
+            if at is None:
+                return respond()
+            parts = event.id.split(SEP)
+            here = parts[0] == "goto"
+            ref = parts[1]
+            folder = parts[2] if len(parts) > 2 else ""
+            name = parts[3] if len(parts) > 3 else None
+
+            actions = [navigate(
+                tree_url(at.root, ref, folder),
+                panel="self" if here else "other",
+                name=name,
+            )]
+            # Full screen there is no panel beside this one to look at: the
+            # page covers both. Going somewhere while a page stands over it is
+            # not going anywhere, so the page steps aside.
+            if here and context.surface == "fullscreen":
+                actions.append(close())
+            where = "the panel beside this one" if not here else "this panel"
+            if name:
+                said = "%s as it was at %s, in %s" % (name, ref[:7], where)
             else:
-                kind, title, confirm = (
-                    "stage",
-                    "Put %s in the next commit?" % path,
-                    "Stage",
-                )
+                said = "The files as they were at %s, in %s" % (ref[:7], where)
+            return respond(actions=actions, status=said)
+
+        if event.id and (event.id.startswith("stage" + SEP)
+                         or event.id.startswith("unstage" + SEP)):
+            if at is None:
+                return respond()
+            kind, _, path = event.id.partition(SEP)
+            if kind == "unstage":
+                title, confirm = "Take %s out of the next commit?" % path, "Unstage"
+            else:
+                title, confirm = "Put %s in the next commit?" % path, "Stage"
             _pending["%s:%s" % (context.session, kind)] = (kind, path)
             return respond(
                 actions=[ask(kind, title, "In %s." % at.name, confirm=confirm)]
             )
 
-        if event.part == "log" and at_row is not None and at_row >= 0:
-            commits = _log_cache.get(context.session) or []
-            if at_row < len(commits) and commits[at_row].hash != WORKING:
-                return respond(
-                    actions=[navigate(tree_url(at.root, commits[at_row].hash))],
-                    status="%s — opened beside this one" % commits[at_row].short,
-                )
-        return respond()
-
-    if event.kind == "button":
-        options = _options.get(context.session, dict(plugin.settings))
         if event.id == "refresh":
             return show(context, options)
 
