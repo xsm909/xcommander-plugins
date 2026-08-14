@@ -652,6 +652,70 @@ def do(root: str, *args: str) -> Tuple[bool, str]:
     return False, message or "git refused, and said nothing about why."
 
 
+#: How long a command that goes to a server may take. Not `TIMEOUT`: reading a
+#: repository on the disk either answers at once or something is wrong, while a
+#: fetch of a year's work over a hotel connection is slow and still working.
+NETWORK_TIMEOUT = 180
+
+
+def reach(root: str, *args: str) -> Tuple[bool, str]:
+    """A git command that goes to a server, and everything it said.
+
+    **The one place in this plugin that opens a connection, and only ever
+    because a button was pressed.** The whole tool is built on not touching the
+    network by itself — see the note at the top of this file — and these four
+    do not weaken that rule, they are the rule's other half: asked, and only
+    then.
+
+    Two things it does that `do` does not. It waits longer, because a server
+    is not a disk. And it makes sure git **cannot stop to ask for a password**:
+    a prompt would be drawn on a terminal nobody is looking at, and this
+    process would sit there holding the tool until the timeout. Told to fail
+    instead, the user is shown what happened and can go and log in.
+
+    Both streams come back, in order. git talks about a fetch on stderr even
+    when it worked — "From github.com:…" is not an error — so a version that
+    kept only stdout would report every successful fetch as silence.
+    """
+    env = dict(os.environ)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_ASKPASS"] = ""
+    env.setdefault("GIT_SSH_COMMAND", "ssh -oBatchMode=yes")
+
+    try:
+        done = subprocess.run(
+            ["git", "-C", root, *args],
+            capture_output=True,
+            timeout=NETWORK_TIMEOUT,
+            check=False,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "%s gave up after %d seconds." % (args[0], NETWORK_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as failure:
+        return False, str(failure)
+
+    said = "\n".join(
+        part
+        for part in (
+            done.stdout.decode("utf-8", "replace").strip(),
+            done.stderr.decode("utf-8", "replace").strip(),
+        )
+        if part
+    )
+    if done.returncode == 0:
+        return True, said
+    return False, said or "git refused, and said nothing about why."
+
+
+def first_line(said: str, otherwise: str) -> str:
+    """The one line of git's answer worth putting in a status bar."""
+    for line in said.splitlines():
+        if line.strip():
+            return line.strip()
+    return otherwise
+
+
 def message_of(root: str, hash: str) -> str:
     return (run(root, "show", "-s", "--pretty=format:%s", hash) or "").strip()
 
@@ -1261,7 +1325,36 @@ def show(context, options: Optional[Dict[str, object]] = None,
         menus=menus_of(options),
         commands=[
             branch_pill(at),
+            # In the bar, where every other tool keeps what it can do — and in
+            # the order the work goes: look again, catch up, hand over, put
+            # aside. Each of the last three asks first or refuses; see the
+            # handlers.
             {"id": "refresh", "label": "Read it again", "icon": "refresh"},
+            {
+                "id": "fetch",
+                "label": "Fetch",
+                "icon": "download",
+                "tooltip": "Ask the remotes what they have — nothing here "
+                "changes",
+            },
+            {
+                "id": "pull",
+                "label": "Pull",
+                "icon": "sync",
+                "tooltip": "Bring what the remote has into %s" % (branch or "here"),
+            },
+            {
+                "id": "push",
+                "label": "Push",
+                "icon": "upload",
+                "tooltip": "Hand what is committed here to the remote",
+            },
+            {
+                "id": "stash",
+                "label": "Put aside",
+                "icon": "aside",
+                "tooltip": "Put the changes aside and leave the tree clean",
+            },
         ],
     )
 
@@ -1386,6 +1479,28 @@ def git(context, event) -> dict:
             if not done:
                 return respond(actions=[notice(said)])
             return show(context, _options.get(context.session))
+
+        # The three that were agreed to. Each redraws the whole page rather
+        # than patching a line of it: after any of them the log, the counts and
+        # the working-tree row are all different facts.
+        if kind in ("pull", "push", "stash"):
+            if kind == "stash":
+                done, said = do(at.root, "stash", "push", "--include-untracked")
+            elif kind == "pull":
+                done, said = reach(at.root, "pull", "--ff-only")
+            else:
+                done, said = reach(at.root, "push")
+
+            if not done:
+                return respond(actions=[notice(said)])
+            answer = show(context, _options.get(context.session))
+            answer["status"] = "%s. %s" % (
+                first_line(said, {"pull": "Pulled",
+                                  "push": "Pushed",
+                                  "stash": "Put aside"}[kind]),
+                answer.get("status") or "",
+            )
+            return answer
 
         if kind == "stage":
             done, said = do(at.root, "add", "--", subject)
@@ -1533,6 +1648,71 @@ def git(context, event) -> dict:
 
         if event.id == "refresh":
             return show(context, options)
+
+        # The four that are about somewhere else. Fetch only *reads*, so it
+        # goes on the press alone; the three that change something ask first,
+        # which is the rule the rest of this plugin already follows.
+        if event.id == "fetch":
+            if at is None:
+                return respond()
+            done, said = reach(at.root, "fetch", "--all", "--prune")
+            if not done:
+                return respond(actions=[notice(said)])
+            # The counts in the status line and the "not pushed" marks are
+            # answers about what the last fetch left behind, so this is
+            # precisely the moment they are wrong.
+            answer = show(context, options)
+            answer["status"] = "Fetched. " + (answer.get("status") or "")
+            if said.strip():
+                answer.setdefault("actions", []).append(notice(said))
+            return answer
+
+        if event.id in ("pull", "push", "stash"):
+            if at is None:
+                return respond()
+            kind = event.id
+            dirty = [line for line in (run(at.root, "status", "--porcelain") or "").splitlines()
+                     if line.strip()]
+
+            if kind == "stash":
+                if not dirty:
+                    return respond(
+                        actions=[notice("There is nothing to put aside.")]
+                    )
+                title = "Put %d changed file%s aside?" % (
+                    len(dirty), "" if len(dirty) == 1 else "s"
+                )
+                message = ("In %s. They go on the stash and the tree is left "
+                           "clean; nothing is lost." % at.name)
+                confirm = "Put aside"
+            elif kind == "pull":
+                # A pull rewrites files under the user's hands, and git will
+                # refuse a dirty tree itself — badly, halfway through. Refused
+                # here instead, in words, the same way switching branch is.
+                if dirty:
+                    return respond(actions=[notice(
+                        "%d file%s changed here. Commit them or put them "
+                        "aside first — a pull would have to write over them."
+                        % (len(dirty), "" if len(dirty) == 1 else "s")
+                    )])
+                title = "Bring the remote's work into %s?" % (at.branch or "here")
+                message = "Only if it fits on the end of what is here."
+                confirm = "Pull"
+            else:
+                ahead = len(unpushed(at.root))
+                if not ahead:
+                    return respond(actions=[notice(
+                        "Nothing here that the remotes have not got — as of "
+                        "the last fetch."
+                    )])
+                title = "Hand over %d commit%s?" % (
+                    ahead, "" if ahead == 1 else "s"
+                )
+                message = "From %s. This is the one that leaves the machine." % at.name
+                confirm = "Push"
+
+            _pending["%s:%s" % (context.session, kind)] = (kind, "")
+            return respond(actions=[ask(kind, title, message, confirm=confirm)])
 
         # A ref picked out of the pill. Its own name rides on the id, so
         # nothing has to be remembered between the menu opening and a row of

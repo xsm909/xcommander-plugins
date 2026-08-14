@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.git",
   "name": "Git",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "description": "The repository the panel is standing in, on one page: its branches, its log with the shape of the history drawn, what each commit touched and the difference itself.",
   "category": "Tools",
   "author": "xcommander",
