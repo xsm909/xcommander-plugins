@@ -1,0 +1,29 @@
+{
+  "id": "org.xcommander.builtin.image",
+  "name": "Images",
+  "version": "1.0.0",
+  "description": "Displays raster images, zoomable and pannable.",
+  "author": "xcommander",
+  "apiVersion": 1,
+  "runtime": "declarative",
+  "viewers": [
+    {
+      "id": "builtin.image",
+      "title": "Image",
+      "priority": 20,
+      "extensions": [
+        "png",
+        "jpg",
+        "jpeg",
+        "gif",
+        "webp",
+        "bmp"
+      ],
+      "render": {
+        "kind": "image",
+        "maxBytes": 33554432
+      }
+    }
+  ],
+  "category": "Viewers"
+}

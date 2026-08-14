@@ -90,6 +90,20 @@
     "updated": "2026-08-14T18:43:52+02:00"
   },
   {
+    "folder": "image",
+    "id": "org.xcommander.builtin.image",
+    "name": "Images",
+    "version": "1.0.0",
+    "description": "Displays raster images, zoomable and pannable.",
+    "runtime": "declarative",
+    "apiVersion": 1,
+    "platforms": [],
+    "pythonMin": null,
+    "category": "Viewers",
+    "icon": null,
+    "updated": null
+  },
+  {
     "folder": "smb",
     "id": "org.xcommander.smb",
     "name": "SMB",
@@ -124,6 +138,20 @@
     "category": "Tools",
     "icon": "memory",
     "updated": "2026-08-10T20:51:43+02:00"
+  },
+  {
+    "folder": "viewer",
+    "id": "org.xcommander.builtin.viewer",
+    "name": "Files as text",
+    "version": "1.0.0",
+    "description": "One viewer for the files that are text: plain, coloured by language, formatted JSON, Markdown, delimited tables, numbered lines, and the hex dump nothing else claims. Shift+F3 chooses between the readings.",
+    "runtime": "declarative",
+    "apiVersion": 1,
+    "platforms": [],
+    "pythonMin": null,
+    "category": "Viewers",
+    "icon": null,
+    "updated": null
   },
   {
     "folder": "web",
