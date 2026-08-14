@@ -58,6 +58,7 @@ from xcommander import (
     navigate,
     notice,
     part,
+    refresh,
     respond,
     row,
     split,
@@ -211,7 +212,13 @@ def log_of(root: str, count: int, all_branches: bool, graph: bool,
         root,
         "log",
         *(["--topo-order"] if graph else []),
-        "--all" if all_branches else ref,
+        # **Every branch means every branch, not the stash as well.** `--all`
+        # takes `refs/stash` with it, so what somebody put aside came back as
+        # two commits nobody wrote — `WIP on main` and `index on main` — sitting
+        # in the braid beside real ones. What is put aside has a page of its
+        # own now, which is where it is read; `--exclude` has to come before
+        # the `--all` it is about.
+        *(["--exclude=refs/stash", "--all"] if all_branches else [ref]),
         # One more than asked for, so "there are more" is a fact rather than a
         # guess — and free, rather than a second walk of the history to count
         # it. The extra one is dropped before anybody sees it.
@@ -428,6 +435,7 @@ def menus_of(options: Dict[str, object]) -> List[dict]:
                 {},
                 {"id": "commit", "label": "Commit…"},
                 {"id": "stash", "label": "Put the changes aside"},
+                {"id": "stashes", "label": "What is put aside…"},
             ],
         },
         {
@@ -559,24 +567,19 @@ def looks_binary(full: str) -> bool:
         return False
 
 
-def untracked_diff(root: str, path: str) -> str:
-    """A file git has never been told about, as the addition it would be.
+def addition_diff(path: str, body: str, cut: bool = False) -> str:
+    """A file with nothing older to compare it against, as the addition it is.
 
     Written out here rather than asked of git. `git diff --no-index` answers
     this exactly, and answers it with **an exit code of 1** — its way of saying
     "they differ" — which `run` reads as a failure like any other, so a new
     file showed as "nothing to show" however much was in it. There is no
     comparison to make anyway: nothing of it is old.
-    """
-    full = os.path.join(root, path)
-    try:
-        with open(full, "rb") as reading:
-            raw = reading.read(UNTRACKED_BYTES + 1)
-    except OSError as trouble:
-        return "This file could not be read: %s" % trouble
 
-    cut = len(raw) > UNTRACKED_BYTES
-    body = raw[:UNTRACKED_BYTES].decode("utf-8", "replace")
+    Two callers, and both have the same problem: a file on the disk git has
+    never been told about, and a file put aside with `--include-untracked`,
+    which git kept in a parent of its own and never committed anywhere.
+    """
     lines = body.splitlines()
     if len(lines) > UNTRACKED_LINES:
         lines = lines[:UNTRACKED_LINES]
@@ -594,6 +597,22 @@ def untracked_diff(root: str, path: str) -> str:
         out.append("+")
         out.append("+... the rest of a new file this long is not a preview.")
     return "\n".join(out)
+
+
+def untracked_diff(root: str, path: str) -> str:
+    """A file git has never been told about, read off the disk."""
+    full = os.path.join(root, path)
+    try:
+        with open(full, "rb") as reading:
+            raw = reading.read(UNTRACKED_BYTES + 1)
+    except OSError as trouble:
+        return "This file could not be read: %s" % trouble
+
+    return addition_diff(
+        path,
+        raw[:UNTRACKED_BYTES].decode("utf-8", "replace"),
+        len(raw) > UNTRACKED_BYTES,
+    )
 
 
 def worktree_diff(root: str, index: str, tree: str, path: str) -> str:
@@ -648,6 +667,147 @@ def refs_of(root: str) -> List[Tuple[str, str, str, str]]:
             kind = "tag"
         refs.append((kind, short, subject, when))
     return refs
+
+
+# -- what has been put aside ----------------------------------------------------
+
+
+class Stash:
+    """One thing on the stash: git's own name for it, and what it says."""
+
+    __slots__ = ("ref", "branch", "message", "when")
+
+    def __init__(self, ref: str, branch: str, message: str, when: str) -> None:
+        #: `stash@{0}`, which is a **position rather than a name**: dropping one
+        #: renumbers the rest. Nothing here is remembered across a change to the
+        #: list, and every act reads the list again afterwards.
+        self.ref = ref
+        #: The branch it was made on, drawn as a chip the way the log draws one.
+        self.branch = branch
+        #: What the person called it, and empty where they called it nothing.
+        self.message = message
+        self.when = when
+
+
+def _stash_said(said: str) -> Tuple[str, str]:
+    """`%gs` as the branch it was made on and what it says.
+
+    git writes `On <branch>: <message>` for a stash somebody named and
+    `WIP on <branch>: <hash> <subject>` for one they did not — where that
+    subject belongs to **the commit it was made on**, not to the work in it.
+    Drawing that as the stash's own name would be naming the wrong thing, so an
+    unnamed stash comes back with nothing to say and the page says so itself.
+    """
+    for prefix, named in (("WIP on ", False), ("On ", True)):
+        if said.startswith(prefix):
+            branch, sep, rest = said[len(prefix):].partition(": ")
+            if sep:
+                return branch, rest if named else ""
+    return "", said
+
+
+def stashes_of(root: str) -> List[Stash]:
+    """Everything on the stash, newest first — git's own order."""
+    # **No `--date=`, and it is not a preference.** `%gd` is a *reflog
+    # selector*, and telling git how to write dates rewrites it: every row came
+    # back as `stash@{2026-08-14 18:25}` instead of `stash@{0}`, which is not
+    # something `git stash pop` can be given — and every row of one minute said
+    # the same thing, so the act would have been done to whichever git guessed.
+    # The date is cut out of `%ai` here instead, which no option can move.
+    body = run(root, "stash", "list",
+               "--format=%gd" + FS + "%gs" + FS + "%ai")
+    if not body:
+        return []
+
+    entries: List[Stash] = []
+    for line in body.splitlines():
+        parts = line.split(FS)
+        if len(parts) < 3:
+            continue
+        branch, message = _stash_said(parts[1])
+        entries.append(Stash(parts[0], branch, message, parts[2][:16]))
+    return entries
+
+
+def stash_files(root: str, ref: str) -> List[Tuple[str, str]]:
+    """What is in one stash: `(status, path)`.
+
+    **`--include-untracked`, because that is what fills the stash here.** The
+    button in the bar puts things aside with `-u`, and those files live in a
+    third parent of their own; a list without them would be a list of some of
+    what was put aside. Older gits do not know the flag on `stash show`, so the
+    plain answer is the fallback rather than an empty page.
+    """
+    body = run(root, "stash", "show", "--include-untracked", "--name-status",
+               "--no-color", ref)
+    if body is None:
+        body = run(root, "stash", "show", "--name-status", "--no-color", ref)
+    if not body:
+        return []
+
+    files: List[Tuple[str, str]] = []
+    for line in body.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        # A rename carries both names; where it ended up is what matters.
+        files.append((parts[0][0], parts[-1]))
+    return files
+
+
+def stash_untracked(root: str, ref: str) -> set:
+    """The files in this stash that git had never been told about.
+
+    They are a parent of their own — `<ref>^3` — and there is no third parent
+    when nothing was put aside that way, so this answers "was it made with -u"
+    as well, and answers it without a second call.
+    """
+    return set((run(root, "ls-tree", "-r", "--name-only", ref + "^3")
+                or "").splitlines())
+
+
+def _binary_between(root: str, old: str, new: str, path: str) -> bool:
+    """Whether git calls this change binary — its own answer, as everywhere."""
+    body = run(root, "diff", "--numstat", old, new, "--", path)
+    for line in (body or "").splitlines():
+        fields = line.split("\t")
+        if len(fields) >= 3:
+            return fields[0] == "-" and fields[1] == "-"
+    return False
+
+
+def stash_diff(root: str, ref: str, status: str, path: str,
+               fresh: bool) -> Tuple[str, str]:
+    """One file of a stash, as `(difference, something to show instead)`.
+
+    Exactly one of the pair is filled, which is the shape the log's half of the
+    page already works in: a picture is shown rather than described, and what
+    is shown is the version **inside the stash** — the disk has not had it
+    since it was put aside.
+    """
+    if fresh:
+        # Never committed anywhere, so there is nothing to compare it against;
+        # what is in it is what would be added.
+        body = run(root, "show", "%s^3:%s" % (ref, path))
+        if body is None:
+            return "This file could not be read out of the stash.", ""
+        if "\0" in body[:8000]:
+            return "", tree_url(root, ref + "^3", path)
+        return addition_diff(
+            path,
+            body[:UNTRACKED_BYTES],
+            len(body) > UNTRACKED_BYTES,
+        ), ""
+
+    if _binary_between(root, ref + "^1", ref, path):
+        # A file the stash *deletes* has no version in it to be shown, and git
+        # has nothing to say about it either.
+        return "", "" if status == "D" else tree_url(root, ref, path)
+
+    body = run(root, "diff", "--no-color", ref + "^1", ref, "--", path)
+    return (body or "").lstrip("\n"), ""
 
 
 # -- the few things that write --------------------------------------------------
@@ -1043,6 +1203,43 @@ class Staging:
 
 #: The commit page each open copy has, while it has one.
 _staging: Dict[str, Staging] = {}
+
+
+class Stashes:
+    """What has been put aside, on a page of its own.
+
+    **His answer, asked and given on 2026-08-14: a page, not rows in the log.**
+    A stash is not a commit — it is not in the history, it has no place in the
+    braid, and a row of the log that could not be walked into like the others
+    would be a row that lies about what it is. So it lives where the commit
+    being written lives: over the log, with Escape as the way back.
+
+    The same two halves as everything else in this tool: the list at the top,
+    and underneath it what the one under the cursor holds — the files, and the
+    difference of the file under *that* cursor.
+    """
+
+    __slots__ = ("root", "name", "entries", "at", "files", "fresh", "file",
+                 "diff", "shown")
+
+    def __init__(self, root: str, name: str) -> None:
+        self.root = root
+        self.name = name
+        self.entries: List[Stash] = []
+        #: Which one the cursor is on.
+        self.at = 0
+        #: `(status, path)` of what that one holds.
+        self.files: List[Tuple[str, str]] = []
+        #: Which of those git had never been told about when they were put
+        #: aside — they have no older version, and no diff to read.
+        self.fresh: set = set()
+        self.file = -1
+        self.diff = ""
+        self.shown = ""
+
+
+#: The stash page each open copy has, while it has one.
+_stashes: Dict[str, Stashes] = {}
 
 #: The other half of a question already being asked: the files in the same lot
 #: that have to go to the host to be deleted rather than to git to be put back.
@@ -1593,6 +1790,11 @@ def show(context, options: Optional[Dict[str, object]] = None,
     if commits:
         select_commit(at, commits[0])
     count = sum(1 for commit in commits if commit.local)
+    # What is on the stash is nowhere else on this page — it is not in the
+    # history and not in the working tree — so the line that says what state
+    # the repository is in is where it gets said, and it is what tells anybody
+    # the page exists at all.
+    put_aside = len(stashes_of(root))
 
     return respond(
         content=page_of(at, commits, graph),
@@ -1601,11 +1803,12 @@ def show(context, options: Optional[Dict[str, object]] = None,
         # and back out of any more.
         title=name,
         trail=[],
-        status="%s — %s%s%s"
+        status="%s — %s%s%s%s"
         % (
             showing if ref is None else "%s (looking, not checked out)" % showing,
             state,
             ", %d not pushed" % count if count else "",
+            ", %d put aside" % put_aside if put_aside else "",
             # Never silently. A history that goes on past the end of what is
             # drawn takes its forks with it.
             ", the newest %d — there are more" % asked if more else "",
@@ -1980,6 +2183,342 @@ def _with_message(work: Staging, typed: str) -> dict:
     return content
 
 
+# -- the page what is put aside lives on ----------------------------------------
+
+
+def read_stashes(work: Stashes) -> None:
+    """The list again, and the cursor kept where it can still stand.
+
+    Dropping the last one, or popping it, leaves a shorter list — and a `stash@{n}`
+    is a position, so everything below the one that went is a different stash
+    now. Reading the list again after every act is the only honest answer.
+    """
+    work.entries = stashes_of(work.root)
+    if work.at >= len(work.entries):
+        work.at = max(0, len(work.entries) - 1)
+    select_stash(work, work.at)
+
+
+def select_stash(work: Stashes, index: int) -> None:
+    """Points the bottom half at one stash, and at the first file in it."""
+    work.at = index
+    work.files = []
+    work.fresh = set()
+    work.file = -1
+    work.diff = ""
+    work.shown = ""
+    if index < 0 or index >= len(work.entries):
+        return
+
+    ref = work.entries[index].ref
+    work.files = stash_files(work.root, ref)
+    work.fresh = stash_untracked(work.root, ref)
+    if work.files:
+        select_stash_file(work, 0)
+
+
+def select_stash_file(work: Stashes, index: int) -> None:
+    """Points the difference at one of the files, and reads it."""
+    if index < 0 or index >= len(work.files) or not work.entries:
+        return
+    work.file = index
+    status, path = work.files[index]
+    work.diff, work.shown = stash_diff(
+        work.root,
+        work.entries[work.at].ref,
+        status,
+        path,
+        path in work.fresh,
+    )
+
+
+def _stash_list(work: Stashes) -> dict:
+    """The stash itself: git's name for each one, what it says, and when.
+
+    Every row is `pending` — a fifth lighter — and every row deserves it: this
+    is work that is real and is not written down, which is the one thing the
+    whole page is about. The log draws its working-tree row the same way.
+    """
+    return table(
+        [
+            column("Stash", width=96, kind="mono"),
+            column("What was put aside", flex=3),
+            column("When", width=118, align="right"),
+        ],
+        [
+            row(
+                [
+                    one.ref,
+                    cell(
+                        one.message or "Work in progress",
+                        chips=[chip(one.branch, "branch")] if one.branch else None,
+                    ),
+                    one.when,
+                ],
+                role="pending",
+            )
+            for one in work.entries
+        ],
+    )
+
+
+def _stash_detail(work: Stashes) -> dict:
+    """What the stash under the cursor holds, and the file under that one."""
+    if not work.entries:
+        return text(
+            "Nothing has been put aside. Stash in the bar takes everything "
+            "changed here, puts it on the stash and leaves the tree clean."
+        )
+    if not work.files:
+        return text("There is nothing in this stash.")
+
+    return split(
+        [
+            part(
+                "files",
+                table(
+                    [column("", kind="icon"), column("File", flex=1)],
+                    [
+                        row(
+                            [
+                                cell("never added", icon="untracked")
+                                if path in work.fresh else _mark(status),
+                                path,
+                            ],
+                            role="pending",
+                        )
+                        for status, path in work.files
+                    ],
+                ),
+                weight=2,
+            ),
+            part(
+                "diff",
+                file(work.shown) if work.shown
+                else text(work.diff or "Nothing to show for this file.",
+                          language="diff"),
+                weight=3,
+            ),
+        ],
+        "horizontal",
+    )
+
+
+def _stash_title(work: Stashes) -> str:
+    if not work.entries:
+        return "Nothing put aside"
+    one = work.entries[work.at]
+    return "%s — %s%s" % (
+        one.ref,
+        one.message or "work in progress",
+        " · %d file%s" % (len(work.files), "" if len(work.files) == 1 else "s")
+        if work.files else "",
+    )
+
+
+def stash_page(work: Stashes) -> dict:
+    return split([
+        part("stashes", _stash_list(work), weight=2),
+        part("detail", _stash_detail(work), weight=3, title=_stash_title(work)),
+    ])
+
+
+def show_stashes(work: Stashes, pushing: bool = False,
+                 said: Optional[str] = None) -> dict:
+    """The stash page, drawn — pushed over the log the first time only."""
+    body = respond(
+        content=stash_page(work),
+        title="Put aside",
+        status=said or "Enter brings one back; the secondary press offers the "
+                       "rest.",
+        # Nothing of the log's belongs here, the same way nothing of it belongs
+        # on the commit page: the pill says a branch this page cannot switch,
+        # and the buttons are about the repository rather than about the work
+        # standing beside it.
+        commands=[],
+        menus=[],
+    )
+    if pushing:
+        body["actions"] = [page()]
+    return body
+
+
+def open_stashes(context, at: Where) -> dict:
+    """Opens it over the log, on whichever surface asked for it."""
+    work = Stashes(at.root, at.name)
+    read_stashes(work)
+    _stashes[context.session] = work
+    return show_stashes(work, pushing=True)
+
+
+def stash_event(context, work: Stashes, event) -> Optional[dict]:
+    """What happens on the stash page. None means "not mine, try the log"."""
+    if event.kind in ("cursor", "activate") and event.part == "stashes":
+        at_row = event.row
+        if at_row is None or at_row < 0 or at_row >= len(work.entries):
+            return respond()
+
+        if event.kind == "cursor":
+            if at_row == work.at:
+                return respond()
+            select_stash(work, at_row)
+            return show_stashes(work)
+
+        # Opening a stash is bringing it back — there is nowhere to *go*, the
+        # whole of it is already on the page. It writes over the working tree,
+        # so it asks first, which is what everything that writes does here.
+        one = work.entries[at_row]
+        if at_row != work.at:
+            select_stash(work, at_row)
+        return _ask_about(context, work, "stash.pop", one)
+
+    if event.kind == "cursor" and event.part == "files":
+        at_row = event.row
+        if at_row is None or at_row < 0 or at_row >= len(work.files):
+            return respond()
+        if at_row == work.file:
+            return respond()
+        select_stash_file(work, at_row)
+        return show_stashes(work)
+
+    if event.kind == "activate" and event.part == "files":
+        at_row = event.row
+        if at_row is None or at_row < 0 or at_row >= len(work.files):
+            return respond()
+        if at_row != work.file:
+            select_stash_file(work, at_row)
+        status, path = work.files[at_row]
+        if not work.entries or status == "D":
+            # The stash deletes it, so there is no version of it in there to go
+            # and look at.
+            return show_stashes(work)
+
+        one = work.entries[work.at]
+        ref = one.ref + "^3" if path in work.fresh else one.ref
+        folder, _, name = path.rpartition("/")
+        answer = show_stashes(work)
+        answer["actions"] = [navigate(tree_url(work.root, ref, folder),
+                                      name=name)]
+        answer["status"] = "%s — as it was put aside, in the panel beside " \
+                           "this one" % path
+        return answer
+
+    if event.kind == "mark" and event.part == "stashes":
+        at_row = event.row
+        if at_row is None or at_row < 0 or at_row >= len(work.entries):
+            return respond()
+        if at_row != work.at:
+            select_stash(work, at_row)
+        ref = work.entries[at_row].ref
+        # One subject, and it rides in the id the way every other menu row's
+        # does — see `SEP`. Marks are not part of this: the three acts below
+        # are `git stash` verbs, each of which takes exactly one entry.
+        return respond(context_menu=[
+            {"id": "stash.pop" + SEP + ref, "label": "Bring it back"},
+            {
+                "id": "stash.apply" + SEP + ref,
+                "label": "Bring it back and leave it on the stash",
+            },
+            {},
+            {"id": "stash.drop" + SEP + ref, "label": "Discard this stash"},
+        ])
+
+    if event.kind == "button" and event.id and event.id.startswith("stash."):
+        kind, _, ref = event.id.partition(SEP)
+        if not ref:
+            return None
+        for one in work.entries:
+            if one.ref == ref:
+                return _ask_about(context, work, kind, one)
+        return respond()
+
+    if event.kind == "answered" and (event.id or "").startswith("stash."):
+        question = _pending.pop(
+            "%s:%s" % (context.session, event.id or ""), None
+        )
+        if question is None:
+            return None
+        if not event.accepted:
+            return respond(status="Nothing was changed.")
+
+        kind, ref = question
+        # Counted before the act and off the ref the act is about, not off the
+        # cursor: a pop takes the entry with it, and a menu row carries its own
+        # subject — the two are usually the same stash and "usually" is how a
+        # page comes to say "1 file" about four.
+        held = len(stash_files(work.root, ref))
+        if kind == "stash.pop":
+            done, said = do(work.root, "stash", "pop", ref)
+        elif kind == "stash.apply":
+            done, said = do(work.root, "stash", "apply", ref)
+        else:
+            done, said = do(work.root, "stash", "drop", ref)
+
+        if not done:
+            # git refuses a pop that would write over work in hand, and says
+            # exactly which file it is about. Its words, not ours — and a pop
+            # that stopped on a conflict has still written to the disk, so
+            # whatever is looking at that folder is looking at a listing from
+            # before it did.
+            answer = respond(actions=[notice(said)])
+            if kind != "stash.drop":
+                answer["actions"].append(refresh())
+            return answer
+
+        read_stashes(work)
+        # **Our words, not git's.** `git stash pop` answers with the whole of
+        # `status` — its first line is "On branch main", which in a status bar
+        # is a fact nobody asked for about a page that has just done something
+        # else entirely. Drop's own line is worth keeping.
+        files = "%d file%s" % (held, "" if held == 1 else "s")
+        told = {
+            "stash.pop": "%s brought back, and the stash entry is gone." % files,
+            "stash.apply": "%s brought back, and %s is still on the stash."
+                           % (files, ref),
+            "stash.drop": "%s discarded — %s." % (ref, files),
+        }[kind]
+        if not work.entries:
+            # Nothing left to be on this page for. Back to the log, which reads
+            # itself again when it gets there — and the tree it is about has
+            # just changed.
+            _stashes.pop(context.session, None)
+            return respond(actions=[back()], status=told)
+
+        answer = show_stashes(work, said=told)
+        if kind != "stash.drop":
+            # The files are on the disk again, so a panel showing that folder
+            # is looking at a listing from before they were.
+            answer["actions"] = [refresh()]
+        return answer
+
+    return None
+
+
+def _ask_about(context, work: Stashes, kind: str, one: Stash) -> dict:
+    """The question each of the three acts goes through first."""
+    named = one.message or "the work put aside %s" % one.when
+    if kind == "stash.pop":
+        title = "Bring back %s?" % named
+        message = ("In %s. The files come back into the working tree and the "
+                   "stash entry goes; if they do not all fit, git says so and "
+                   "the entry stays." % work.name)
+        confirm, danger = "Bring back", False
+    elif kind == "stash.apply":
+        title = "Bring back %s, and keep it?" % named
+        message = ("In %s. The files come back into the working tree and %s "
+                   "stays on the stash." % (work.name, one.ref))
+        confirm, danger = "Bring back", False
+    else:
+        title = "Discard %s?" % named
+        message = ("In %s. This cannot be undone: what is on the stash was "
+                   "never committed." % work.name)
+        confirm, danger = "Discard", True
+
+    _pending["%s:%s" % (context.session, kind)] = (kind, one.ref)
+    return respond(actions=[ask(kind, title, message, confirm=confirm,
+                                danger=danger)])
+
+
 @plugin.view(VIEW_ID, "Git", "The log of the repository this folder is in.")
 def git(context, event) -> dict:
     if event.kind == "open":
@@ -1987,19 +2526,26 @@ def git(context, event) -> dict:
 
     at = _at.get(context.session)
     work = _staging.get(context.session)
+    aside = _stashes.get(context.session)
 
     # The page over the log has been taken off — by Escape, by Back, or by the
     # commit that finished. The host has already drawn what it kept; what it
     # kept is a log from before any of this, so it is read again.
     if event.kind == "back":
         _staging.pop(context.session, None)
+        _stashes.pop(context.session, None)
         return show(context, _options.get(context.session))
 
-    # Everything below happens on the log. The commit page is a page of its
-    # own with parts of its own, and answering its rows against the log's would
-    # be two pages sharing one set of row numbers.
+    # Everything below happens on the log. A page over it is a page of its own
+    # with parts of its own, and answering its rows against the log's would be
+    # two pages sharing one set of row numbers.
     if work is not None and event.kind != "back":
         answer = staging_event(context, work, event)
+        if answer is not None:
+            return answer
+
+    if aside is not None and event.kind != "back":
+        answer = stash_event(context, aside, event)
         if answer is not None:
             return answer
 
@@ -2343,6 +2889,11 @@ def git(context, event) -> dict:
                 return respond()
             return open_staging(context, at)
 
+        if event.id == "stashes":
+            if at is None:
+                return respond()
+            return open_stashes(context, at)
+
         # The four that are about somewhere else. Fetch only *reads*, so it
         # goes on the press alone; the three that change something ask first,
         # which is the rule the rest of this plugin already follows.
@@ -2483,6 +3034,10 @@ def closed(view_id: str, session: str) -> None:
     _at.pop(session, None)
     _log_cache.pop(session, None)
     _options.pop(session, None)
+    # The pages that were standing over the log go with it. A session that
+    # comes back is a new one, and it comes back to the log.
+    _staging.pop(session, None)
+    _stashes.pop(session, None)
 
 
 plugin.run()

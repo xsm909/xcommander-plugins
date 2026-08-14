@@ -64,17 +64,34 @@ file manager is for.
 Read-only, and not by omission: history is what has happened, and a panel that
 offered to write into it would be offering something git itself does not do.
 
+## What is put aside
+
+Stash in the bar takes everything changed here — new files included — puts it on
+the stash and leaves the working tree clean. **Git → What is put aside** opens
+the list of what is on there, on a page of its own over the log: each entry with
+the branch it was made on and when, and underneath it the files it holds and the
+difference of the file under the cursor. Escape comes back to the log.
+
+Enter on an entry brings it back and takes it off the stash; the other button
+offers that, bringing it back and leaving it there, and discarding it. Each of
+the three asks first, and a pop git cannot land — because what is in hand would
+be written over — comes back with git's own words about which file it was.
+
+A stash is not in the history and takes no place in the braid, so the log does
+not show them. What is on the stash is counted in the status line instead.
+
 ## What it will not do
 
-**It does not touch the network.** Whether a commit is pushed is answered from
-what the last fetch left on the disk: a tool that opens a connection because you
-walked into a folder is a tool that hangs on a folder you opened by accident.
+**It does not touch the network until you press something.** Whether a commit is
+pushed is answered from what the last fetch left on the disk: a tool that opens a
+connection because you walked into a folder is a tool that hangs on a folder you
+opened by accident. Fetch, pull and push are buttons, and they are the only
+things here that leave the machine.
 
-What it does write, it asks about first — staging, unstaging, and switching to
-the branch being shown. A dirty tree refuses a switch rather than negotiating
-one: that is where somebody else's merge conflict comes from, and the tool that
-offered it is the one that gets blamed. Committing is still absent, because it
-needs a line of typed text and a plugin can only be given a yes or a no.
+What it does write, it asks about first — staging, unstaging, discarding, the
+stash, and switching to the branch being shown. A dirty tree refuses a switch
+rather than negotiating one: that is where somebody else's merge conflict comes
+from, and the tool that offered it is the one that gets blamed.
 
 ## The mark
 
