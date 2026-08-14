@@ -43,6 +43,7 @@ from xcommander import (
     cell,
     close,
     chip,
+    delete,
     column,
     Entry,
     FILE,
@@ -805,6 +806,10 @@ def diff_of(root: str, hash: str, path: str) -> str:
 #: menu the user is looking at. A control character, because a branch name and
 #: a path may hold anything else.
 SEP = "\x1f"
+
+#: And what separates one subject from the next inside that id, for a menu row
+#: that is about everything picked out rather than about one row.
+RS = "\x1e"
 
 
 # -- a commit as a folder -------------------------------------------------------
@@ -1714,7 +1719,144 @@ def staging_event(context, work: Staging, event) -> Optional[dict]:
             )
         return answer
 
+    if event.kind == "mark" and event.part in ("unstaged", "staged"):
+        at_row = event.row
+        if at_row is None or at_row < 0:
+            return respond()
+        listing = work.unstaged if event.part == "unstaged" else work.staged
+        if at_row >= len(listing):
+            return respond()
+
+        chosen = [row_at for row_at in event.marked if row_at < len(listing)]
+        if at_row not in chosen:
+            chosen = [at_row]
+        fresh = [listing[at][1] for at in chosen if listing[at][0] == "?"]
+        tracked = [listing[at][1] for at in chosen if listing[at][0] != "?"]
+        many = len(chosen) > 1
+        subject = RS.join(listing[at][1] for at in chosen)
+
+        rows: List[dict] = []
+        if event.part == "unstaged":
+            rows.append({
+                "id": "stage" + SEP + subject,
+                "label": "Put %s in the commit" % ("them" if many else "it"),
+            })
+        else:
+            rows.append({
+                "id": "unstage" + SEP + subject,
+                "label": "Take %s out of the commit" % ("them" if many else "it"),
+            })
+
+        # What cannot be undone, and each half of a mixed lot named for what it
+        # actually does to it. Throwing away an edit and deleting a file that
+        # git has never heard of are not the same act, and one word over both
+        # of them would be a word that is wrong half the time.
+        if tracked:
+            rows.append({})
+            rows.append({
+                "id": "discard" + SEP + RS.join(tracked),
+                "label": "Discard the changes to %s"
+                % (("%d files" % len(tracked)) if len(tracked) > 1
+                   else os.path.basename(tracked[0])),
+            })
+        if fresh:
+            if not tracked:
+                rows.append({})
+            rows.append({
+                "id": "remove" + SEP + RS.join(fresh),
+                "label": "Delete %s"
+                % (("%d new files" % len(fresh)) if len(fresh) > 1
+                   else os.path.basename(fresh[0])),
+            })
+
+        return respond(context_menu=rows)
+
+    if event.kind == "answered":
+        question = _pending.pop(
+            "%s:%s" % (context.session, event.id or ""), None
+        )
+        if question is None:
+            return None
+        if not event.accepted:
+            return respond(status="Nothing was changed.")
+
+        _, subject = question
+        paths = subject.split(RS)
+        done, said = do(work.root, "restore", "--staged", "--worktree", "--",
+                        *paths)
+        if not done:
+            # Never staged, so there is no index copy to come back from —
+            # `--staged` is what fails, and the tree alone is the whole story.
+            done, said = do(work.root, "restore", "--", *paths)
+        if not done:
+            return respond(actions=[notice(said)])
+
+        read_staging(work)
+        staging_diff(work)
+        answer = show_staging(work)
+        answer["status"] = "%d file%s put back as %s committed." % (
+            len(paths), "" if len(paths) == 1 else "s",
+            "it was" if len(paths) == 1 else "they were",
+        )
+        return answer
+
+    if event.kind == "deleted":
+        read_staging(work)
+        staging_diff(work)
+        answer = show_staging(work)
+        if event.urls:
+            answer["status"] = "%d new file%s deleted." % (
+                len(event.urls), "" if len(event.urls) == 1 else "s"
+            )
+        return answer
+
     if event.kind == "button":
+        # The context menu's own rows, whose subject rides in the id — see
+        # `SEP`. Staging from here asks nothing, exactly as Enter does; the two
+        # that cannot be undone both go through a question first, and the
+        # deleting one goes through the *host's*, so a new file lands in the
+        # recycle bin like anything else the user deletes.
+        if event.id and SEP in event.id:
+            kind, _, subject = event.id.partition(SEP)
+            paths = subject.split(RS)
+
+            if kind in ("stage", "unstage"):
+                if kind == "stage":
+                    done, said = do(work.root, "add", "--", *paths)
+                else:
+                    done, said = do(work.root, "restore", "--staged", "--",
+                                    *paths)
+                if not done:
+                    return respond(actions=[notice(said)])
+                read_staging(work)
+                staging_diff(work)
+                return show_staging(work)
+
+            if kind == "discard":
+                _pending["%s:%s" % (context.session, "discard")] = (
+                    "discard", subject
+                )
+                return respond(actions=[ask(
+                    "discard",
+                    "Throw away the changes to %d file%s?"
+                    % (len(paths), "" if len(paths) == 1 else "s"),
+                    "In %s. This cannot be undone: what is thrown away was "
+                    "never committed." % work.name,
+                    confirm="Discard",
+                    danger=True,
+                )])
+
+            if kind == "remove":
+                # The host deletes, asks first in the application's own words,
+                # and uses the recycle bin where there is one — the rule a
+                # plugin does not get to go round.
+                return respond(actions=[delete([
+                    "file://" + quote(os.path.join(work.root, path))
+                    for path in paths
+                ])])
+
+            return respond()
+
         if event.id == "amending":
             # The message the user has already written wins over both: turning
             # amending on with something typed keeps it, and turning it off
