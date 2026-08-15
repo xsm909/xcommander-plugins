@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.builtin.viewer",
   "name": "Files as text",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "One viewer for the files that are text: plain, coloured by language, formatted JSON, Markdown, delimited tables, numbered lines, and the hex dump nothing else claims. Shift+F3 chooses between the readings.",
   "category": "Viewers",
   "author": "xcommander",
@@ -17,6 +17,16 @@
       "maximum": 300,
       "step": 100,
       "note": "A shift of the interface weight, on the same hundred scale the appearance settings use and in the same steps: -300 to 300, so -100 is one step lighter and 100 one step heavier. A monospaced family often reads thinner than the interface at the same weight, and this is the knob for that without moving the rest of the application. Only the readings that are text — plain, coloured code and the hex dump."
+    },
+    {
+      "key": "syntaxWeightOffset",
+      "label": "Weight of the coloured words",
+      "type": "integer",
+      "default": 0,
+      "minimum": -300,
+      "maximum": 300,
+      "step": 100,
+      "note": "A shift for the words the colouring picks out — keywords, types, strings, numbers and constants — on top of the weight above, in the same hundred steps. One setting for all of them rather than one per kind: a weight per colour is four knobs nobody turns and a way to make a page look assembled. Comments keep the page's own weight, being the part that is deliberately quiet."
     }
   ],
   "viewers": [
