@@ -1415,12 +1415,19 @@ def commit_page(work: Staging) -> dict:
     The lists are two because a file can be staged and changed again, and one
     list with a mark could only tell that story in a footnote.
 
-    **In a panel it is one column.** Half a window cannot hold two lists, a
-    message and a difference side by side; the same four parts go one under
-    another instead, in the order the work goes — what is out, what is in, what
-    that file looks like, and what the commit will say. Two lines for the
-    message there, not a page of them: a panel has no room to spare and a
-    subject line is what most commits are.
+    **The two lists are side by side on both surfaces.** His, 2026-08-15: *"в
+    комите панели файлов всё ещё вертикальные, мы договаривались что они будут
+    горизонтальные и для этого мы обсуждали сокращения и hint. цель
+    высвободить больше места для preview"* — and that is the whole argument for
+    the shortened path column: it is what makes a list half as wide still
+    readable, so putting the two beside each other costs nothing and gives the
+    height back to the difference, which is the part that needs it.
+
+    **What a panel still does differently** is everything else: the four parts
+    go one under another rather than the work standing beside the difference,
+    because half a window cannot hold a list, a message and a diff across. Two
+    lines for the message there, not a page of them: a panel has no room to
+    spare and a subject line is what most commits are.
     """
     lists = [
         part(
@@ -1444,30 +1451,30 @@ def commit_page(work: Staging) -> dict:
         weight=3,
     )
 
+    # One row holding both, rather than two rows holding one each. **This is
+    # the part that frees the height**, so it is the same on either surface —
+    # what changes with the surface is where the difference goes, not how the
+    # lists sit.
+    def lists_across(weight: float) -> dict:
+        return part("lists", split(lists, "horizontal"), weight=weight)
+
     if not work.wide:
         # Two lines of message need a share of the height, not the crumbs left
         # over: at one part in nine of a panel it was a box nothing fitted in.
-        return split(lists + [difference, _message_part(work, 2)], "vertical")
+        return split(
+            [lists_across(2), difference, _message_part(work, 2)],
+            "vertical",
+        )
 
-    # **The two lists side by side**, his: *"на странице комита stage и список
-    # изменённых файлов упаковываем в горизонталь"*. One above the other, each
-    # was a narrow column of paths in a page that had width to spare — and what
-    # a person compares here is the two lists against each other.
+    # **The work beside the difference**, his: *"на странице комита stage и
+    # список изменённых файлов упаковываем в горизонталь"*. Full screen there
+    # is width to spare, so the diff takes a column of its own at full height
+    # rather than a strip under everything.
     return split(
         [
             part(
                 "work",
-                split(
-                    [
-                        part(
-                            "lists",
-                            split(lists, "horizontal"),
-                            weight=3,
-                        ),
-                        _message_part(work, 2),
-                    ],
-                    "vertical",
-                ),
+                split([lists_across(3), _message_part(work, 2)], "vertical"),
                 weight=2,
             ),
             difference,
@@ -1859,7 +1866,13 @@ def staging_event(context, work: Staging, event) -> Optional[dict]:
     The whole page is here rather than spread through the log's handler,
     because the two pages share nothing: a row number in "staged" and a row
     number in the log are different questions with the same shape.
+
+    **Which surface it is on is asked every time, not remembered.** It was read
+    once when the page opened, so a page opened in a panel and then thrown full
+    screen went on being drawn as a panel — the arrangement was frozen to where
+    it happened to start rather than to where it is.
     """
+    work.wide = context.surface == "fullscreen"
     if event.kind == "cursor" and event.part in ("unstaged", "staged"):
         at_row = event.row
         if at_row is None or at_row < 0:
