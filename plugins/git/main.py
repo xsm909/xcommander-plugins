@@ -1855,6 +1855,37 @@ def show(context, options: Optional[Dict[str, object]] = None,
     )
 
 
+def into_the_commit(context, at: Where, answer: dict) -> dict:
+    """Sends the panel into the commit's files, and says so.
+
+    **One act, two doors.** The hourglass button and its menu row ask for this
+    by name; a double click or Enter on a row in the log opens the same door
+    (item 78). Two copies of it would be two behaviours the day one of them was
+    changed — and the way *back* out, which item 76 built, hangs off the
+    ``back`` label given here.
+
+    [answer] is whatever the page wanted to say anyway, so a redraw and a
+    journey can travel together. The working tree is not a place to go: it is
+    the folder the panel is already standing in, so it is left alone here and
+    the callers that can meet it say so themselves.
+    """
+    if not at.hash or at.hash == WORKING:
+        return answer
+
+    _remember_commit(at.root, at.hash)
+    actions = [navigate(tree_url(at.root, at.hash), panel="self",
+                        back=BACK_TO_COMMITS)]
+    # Full screen there is nothing beside this page to look at, and a page
+    # standing over the panel you have just sent somewhere is a page hiding it.
+    if context.surface == "fullscreen":
+        actions.append(close())
+    answer["actions"] = list(answer.get("actions") or []) + actions
+    answer["status"] = (
+        "The files as they were at %s, in this panel" % at.short
+    )
+    return answer
+
+
 def redraw(session: str, at: Where) -> dict:
     """The page again, from what is already known.
 
@@ -2577,10 +2608,20 @@ def git(context, event) -> dict:
         if answer is not None:
             return answer
 
-    # The cursor coming to rest, and a row being opened, mean the same thing on
-    # this page: show me that one. There is nowhere to *go* — the log stays
-    # where it is and the half underneath fills in — so Enter has nothing to
-    # add that moving there did not already do.
+    # The cursor coming to rest shows a commit in the half below. **Opening one
+    # goes into it** — his, 2026-08-15: *"двойной клик по комиту не работает"*,
+    # and in item 76 he had already said what he expects of it: the files as
+    # they were.
+    #
+    # This overrules the rule that used to be written here, that there was
+    # nowhere to go and so opening a row could mean no more than moving to it.
+    # Until 1.0.0.224 falling into a commit was a one-way door and that was the
+    # honest answer; item 76 built the way back, and with a way back "open it"
+    # means what it means everywhere else in this application.
+    #
+    # It necessarily makes **Enter** walk in as well: the host does not tell a
+    # double click from an Enter, both arrive as `activate`, and a key that did
+    # something different from the double click would be the worse surprise.
     if event.kind in ("cursor", "activate") and at is not None:
         at_row = event.row
         if at_row is None or at_row < 0:
@@ -2596,7 +2637,13 @@ def git(context, event) -> dict:
             if event.kind == "activate" and commits[at_row].hash == WORKING:
                 return open_staging(context, at)
             select_commit(at, commits[at_row])
-            return redraw(context.session, at)
+            answer = redraw(context.session, at)
+            # Opened, not merely walked on to: into the files as they were. The
+            # page is redrawn all the same, because the half below has to show
+            # the commit that is being entered whatever happens to the panel.
+            if event.kind == "activate":
+                return into_the_commit(context, at, answer)
+            return answer
 
         if event.part == "files":
             if at_row >= len(at.files):
@@ -3024,18 +3071,7 @@ def git(context, event) -> dict:
                     "The working tree is the folder this panel is in already."
                 )])
 
-            _remember_commit(at.root, at.hash)
-            actions = [navigate(tree_url(at.root, at.hash), panel="self",
-                                back=BACK_TO_COMMITS)]
-            # Full screen there is nothing beside this page to look at, and a
-            # page standing over the panel you have just sent somewhere is a
-            # page hiding it.
-            if context.surface == "fullscreen":
-                actions.append(close())
-            return respond(
-                actions=actions,
-                status="The files as they were at %s, in this panel" % at.short,
-            )
+            return into_the_commit(context, at, respond())
 
         if event.id and event.id.startswith("toggle."):
             key = event.id.split(".", 1)[1]
