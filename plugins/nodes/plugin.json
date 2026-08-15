@@ -1,0 +1,29 @@
+{
+  "id": "org.xcommander.nodes",
+  "name": "Node graphs",
+  "version": "0.1.0",
+  "description": "Files that are a node graph, drawn as one: a ComfyUI workflow with its prompts and seeds on the boxes, and the wires between them. Shift+F3 on a .json that is a workflow.",
+  "category": "Viewers",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "view",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "viewers": [
+    {
+      "id": "nodes.graph",
+      "title": "Node graph",
+      "extensions": [
+        "json"
+      ],
+      "priority": 5
+    }
+  ]
+}
