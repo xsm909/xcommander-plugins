@@ -44,5 +44,8 @@
       "match": "[A-Za-z0-9_.\\-\"]+(?=\\s*=)",
       "role": "type"
     }
+  ],
+  "sticky": [
+    "meta"
   ]
 }

@@ -46,5 +46,8 @@
     "gitconfig",
     "npmrc",
     "editorconfig"
+  ],
+  "sticky": [
+    "meta"
   ]
 }

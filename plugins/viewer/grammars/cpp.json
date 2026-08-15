@@ -142,5 +142,8 @@
       "match": "#\\s*[A-Za-z_]+",
       "role": "meta"
     }
+  ],
+  "sticky": [
+    "comment"
   ]
 }
