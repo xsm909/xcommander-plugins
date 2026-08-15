@@ -30,6 +30,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import comfyapi  # noqa: E402
 import comfyui  # noqa: E402
 import n8n  # noqa: E402
 import parse  # noqa: E402
@@ -83,6 +84,7 @@ def real_files() -> None:
     # not the reader's, and the page says how many went.
     for name, reader, least, loose_expected in (
         ("comfyui-workflow.json", comfyui, 4, 1),
+        ("comfyui-api-prompt.json", comfyapi, 7, 0),
         ("n8n-competitor-research.json", n8n, 20, 0),
         ("n8n-emails-to-notion.json", n8n, 10, 0),
     ):
@@ -181,6 +183,48 @@ def n8n_shape() -> None:
     )
 
 
+def api_shape() -> None:
+    prompt = {
+        "11": {"class_type": "CheckpointLoaderSimple",
+               "inputs": {"ckpt_name": "sd_xl.safetensors"}},
+        "6": {"class_type": "CLIPTextEncode",
+              "inputs": {"text": "a lighthouse", "clip": ["11", 1]}},
+        "12": {"class_type": "KSampler",
+               "_meta": {"title": "Sample it"},
+               "inputs": {"seed": 812734, "steps": 20,
+                          "model": ["11", 0], "positive": ["6", 0]}},
+    }
+
+    check("an API prompt is recognised", comfyapi.looks_like(prompt))
+    check("a native workflow is not mistaken for one",
+          not comfyapi.looks_like(WORKFLOW))
+    check("and neither is a package.json",
+          not comfyapi.looks_like({"name": "x", "version": "1"}))
+
+    body, _ = comfyapi.read(prompt, 5000)
+    nodes = {node["id"]: node for node in body["nodes"]}
+
+    check("it asks the host to lay it out", body["layout"] == "layered")
+    check("because there are no coordinates in it at all",
+          all(node["x"] == 0 and node["y"] == 0 for node in body["nodes"]))
+
+    # The whole of the parse: a two-element list is a wire, everything else is
+    # a value to write on the face of the node.
+    check("a list of [node, slot] became a wire", len(body["links"]) == 3)
+    check("and a literal became a field",
+          any(f["label"] == "seed" and f["value"] == "812734"
+              for f in nodes["12"]["fields"]))
+    check("a wire is not also written on the box",
+          all(f["label"] not in ("model", "positive")
+              for f in nodes["12"]["fields"]))
+    check("the title comes from _meta when the file has one",
+          nodes["12"]["title"] == "Sample it")
+    check("and the class stays as the subtitle",
+          nodes["12"]["subtitle"] == "KSampler")
+    check("an output pin exists for every slot somebody joined to",
+          [pin["id"] for pin in nodes["11"]["outputs"]] == ["out 0", "out 1"])
+
+
 def main() -> None:
     check("a workflow is recognised", comfyui.looks_like(WORKFLOW))
     check("a bare list is not", not comfyui.looks_like([1, 2, 3]))
@@ -226,6 +270,7 @@ def main() -> None:
     check("past the cap the graph is cut", len(small["nodes"]) == 2 and cut == 1)
 
     n8n_shape()
+    api_shape()
     real_files()
 
     print(json.dumps(body["nodes"][0], indent=2))

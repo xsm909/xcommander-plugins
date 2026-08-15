@@ -43,6 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from xcommander import Plugin, error, nodes  # noqa: E402
 
+import comfyapi  # noqa: E402
 import comfyui  # noqa: E402
 import n8n  # noqa: E402
 import parse  # noqa: E402
@@ -91,7 +92,7 @@ def graph(url: str) -> dict:
     if refusal is not None:
         return refusal
 
-    for reader in (comfyui, n8n):
+    for reader in (comfyui, n8n, comfyapi):
         if not reader.looks_like(document):
             continue
         body, dropped = reader.read(document, MAX_NODES)
@@ -100,6 +101,9 @@ def graph(url: str) -> dict:
             links=body["links"],
             groups=body["groups"],
             notes=body["notes"],
+            # A format that carries no coordinates says so, and the host works
+            # them out — it is the one that measured the boxes.
+            layout=body.get("layout", "given"),
             truncated=dropped > 0,
         )
 
@@ -108,7 +112,8 @@ def graph(url: str) -> dict:
     # is the rare case, and when it happens the honest answer is a sentence.
     return error(
         "This JSON is not a node graph the reader knows: "
-        "ComfyUI workflows and n8n exports are the ones it reads so far."
+        "ComfyUI workflows, their API exports and n8n exports are the ones "
+        "it reads so far."
     )
 
 
