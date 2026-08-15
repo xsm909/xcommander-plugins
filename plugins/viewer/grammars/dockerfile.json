@@ -1,0 +1,51 @@
+{
+  "id": "dockerfile",
+  "name": "Dockerfile",
+  "extensions": [
+    "dockerfile"
+  ],
+  "names": [
+    "dockerfile",
+    "containerfile"
+  ],
+  "caseSensitive": false,
+  "lineComment": [
+    "#"
+  ],
+  "strings": [
+    {
+      "open": "\"",
+      "close": "\""
+    },
+    {
+      "open": "'",
+      "close": "'"
+    }
+  ],
+  "keywords": [
+    "from",
+    "run",
+    "cmd",
+    "label",
+    "expose",
+    "env",
+    "add",
+    "copy",
+    "entrypoint",
+    "volume",
+    "user",
+    "workdir",
+    "arg",
+    "onbuild",
+    "stopsignal",
+    "healthcheck",
+    "shell",
+    "as"
+  ],
+  "types": [],
+  "constants": [
+    "true",
+    "false"
+  ],
+  "linePatterns": []
+}

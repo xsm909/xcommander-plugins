@@ -1,0 +1,48 @@
+{
+  "id": "xml",
+  "name": "XML and HTML",
+  "extensions": [
+    "xml",
+    "html",
+    "htm",
+    "svg",
+    "xaml",
+    "plist",
+    "xhtml",
+    "xsd",
+    "csproj",
+    "vcxproj"
+  ],
+  "blockComment": [
+    [
+      "<!--",
+      "-->"
+    ]
+  ],
+  "strings": [
+    {
+      "open": "\"",
+      "close": "\""
+    },
+    {
+      "open": "'",
+      "close": "'"
+    }
+  ],
+  "keywords": [],
+  "types": [],
+  "constants": [
+    "true",
+    "false"
+  ],
+  "linePatterns": [
+    {
+      "match": "<\\?[^>]*\\?>",
+      "role": "meta"
+    },
+    {
+      "match": "<!DOCTYPE[^>]*>",
+      "role": "meta"
+    }
+  ]
+}
