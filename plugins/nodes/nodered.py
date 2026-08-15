@@ -38,9 +38,16 @@ most of this reader:
   ids it feeds; nothing anywhere names an input socket. So an output pin is its
   index and the input is left off entirely — the document allows that on purpose,
   and it is this format it was allowed for.
-- **`link out` jumps rather than wires.** It carries `links`, the ids of the
-  `link in` nodes it reaches, usually on another tab. Those are drawn too: a jump
-  that is not drawn is a flow that appears to stop dead.
+- **`link out` jumps rather than wires, and a jump between tabs is not drawn.**
+  It carries `links`, the ids of the `link in` nodes it reaches — usually on
+  another tab. Node-RED does not draw a line for those and neither does this,
+  for the reason his screen showed: a straight line between two tabs is a
+  diagonal across the whole picture that explains nothing. The pair carry each
+  other's names, which is how the editor says it too. Inside one tab it *is* a
+  wire, because there it is short and it is the truth.
+- **The drawing is spread.** Node-RED's coordinates are drawn for Node-RED's own
+  boxes — a label and two ports. A box carrying its fields is several times
+  that, so at one to one the flow arrives as a heap of overlapping nodes.
 """
 
 from __future__ import annotations
@@ -105,9 +112,22 @@ INTERESTING = (
     "complete",
 )
 
-#: What separates one tab's block from the next, in document units. Wide enough
-#: that two flows never read as one.
-TAB_GAP = 220
+#: Node-RED's own coordinates are drawn for Node-RED's own boxes, which are a
+#: label and two ports — a fraction of the size of a box carrying its fields. At
+#: one to one the flow comes out as a heap of overlapping nodes, so the whole
+#: drawing is spread by this much. It keeps every relative position the author
+#: chose and gives the boxes room to be what they are here.
+SPREAD = 1.9
+
+#: What a box takes up once it is drawn, in spread units — enough for the tab's
+#: own frame to enclose what is inside it. The host measures the real thing; a
+#: frame drawn a little wide costs nothing, one drawn short cuts a node in half.
+BOX_WIDTH = 260.0
+BOX_HEIGHT = 150.0
+
+#: What separates one tab's block from the next. Wide enough that two flows
+#: never read as one.
+TAB_GAP = 260
 
 
 def looks_like(document: Any) -> bool:
@@ -194,6 +214,7 @@ def read(document: list, cap: int) -> Tuple[dict, int]:
     dropped = max(0, len(boxes) - cap)
     boxes = boxes[:cap]
     known = {str(entry.get("id")) for entry in boxes}
+    home_of = {str(entry.get("id")): str(entry.get("z") or "") for entry in boxes}
 
     # Every tab starts its own coordinates near the origin, so laid out as the
     # file says they would be drawn one on top of another. Each tab's block is
@@ -212,17 +233,21 @@ def read(document: list, cap: int) -> Tuple[dict, int]:
         if not mine:
             continue
         top = min(float(entry.get("y") or 0) for entry in mine)
+        # A box is not a point: without its own height the next tab is laid on
+        # top of the last row of this one.
         bottom = max(
-            float(entry.get("y") or 0) + float(entry.get("h") or 0) for entry in mine
+            float(entry.get("y") or 0)
+            + max(float(entry.get("h") or 0), BOX_HEIGHT / SPREAD)
+            for entry in mine
         )
         shift[home] = running - top
-        running += (bottom - top) + TAB_GAP
+        running += (bottom - top) + TAB_GAP / SPREAD
 
     def place(entry: dict) -> Tuple[float, float]:
         home = str(entry.get("z") or "")
         return (
-            float(entry.get("x") or 0),
-            float(entry.get("y") or 0) + shift.get(home, 0.0),
+            float(entry.get("x") or 0) * SPREAD,
+            (float(entry.get("y") or 0) + shift.get(home, 0.0)) * SPREAD,
         )
 
     # Which nodes have anything coming in. Node-RED never says; the wires do.
@@ -249,12 +274,18 @@ def read(document: list, cap: int) -> Tuple[dict, int]:
                             "role": "flow",
                         }
                     )
-        # The jump. `link out` and `link call` name where they land, and it is
-        # usually on a different tab — undrawn, the flow looks as if it stops.
+        # **The jump is not drawn as a wire when it leaves the tab.** Node-RED
+        # does not draw one either, and for the reason his screen showed: a
+        # straight line between two tabs is a diagonal across the whole picture
+        # that explains nothing. The pair of nodes carry each other's names, and
+        # that is how the editor says it too. Within one tab it *is* a wire,
+        # because there it is a short one and it is the truth.
         if "link" in str(entry.get("type") or ""):
             for target in entry.get("links") or []:
                 target = str(target)
                 if target not in known or target == source:
+                    continue
+                if home_of.get(target) != home_of.get(source):
                     continue
                 fed.add(target)
                 links.append(
@@ -344,21 +375,22 @@ def _groups(
         ]
         if not mine:
             continue
-        left = min(float(entry.get("x") or 0) for entry in mine)
-        right = max(float(entry.get("x") or 0) for entry in mine)
-        top = min(float(entry.get("y") or 0) for entry in mine)
-        bottom = max(float(entry.get("y") or 0) for entry in mine)
-        offset = shift.get(home, 0.0)
+        left = min(float(entry.get("x") or 0) for entry in mine) * SPREAD
+        right = max(float(entry.get("x") or 0) for entry in mine) * SPREAD
+        top = (min(float(entry.get("y") or 0) for entry in mine)
+               + shift.get(home, 0.0)) * SPREAD
+        bottom = (max(float(entry.get("y") or 0) for entry in mine)
+                  + shift.get(home, 0.0)) * SPREAD
         drawn.append(
             {
                 "id": home,
                 "title": str(tab.get("label") or tab.get("name") or "Flow"),
-                # Room for the boxes themselves, whose width the host measures
-                # and this cannot know.
-                "x": left - 60,
-                "y": top + offset - 60,
-                "width": (right - left) + 320,
-                "height": (bottom - top) + 160,
+                # Room for the boxes themselves: a frame drawn from the *tops*
+                # of the nodes ends halfway down the last row of them.
+                "x": left - 40,
+                "y": top - 60,
+                "width": (right - left) + BOX_WIDTH + 80,
+                "height": (bottom - top) + BOX_HEIGHT + 80,
             }
         )
 
@@ -368,10 +400,10 @@ def _groups(
             {
                 "id": str(group.get("id")),
                 "title": str(group.get("name") or ""),
-                "x": float(group.get("x") or 0),
-                "y": float(group.get("y") or 0) + shift.get(home, 0.0),
-                "width": float(group.get("w") or 0),
-                "height": float(group.get("h") or 0),
+                "x": float(group.get("x") or 0) * SPREAD,
+                "y": (float(group.get("y") or 0) + shift.get(home, 0.0)) * SPREAD,
+                "width": float(group.get("w") or 0) * SPREAD,
+                "height": float(group.get("h") or 0) * SPREAD,
             }
         )
 

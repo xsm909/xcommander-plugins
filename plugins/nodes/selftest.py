@@ -241,11 +241,29 @@ def nodered_shape() -> None:
             and wire["to"] == "send-on" for wire in body["links"]),
     )
 
-    # The jump. Undrawn, the flow appears to stop dead at `link out`.
+    # The jump between two tabs is **not** a wire: a straight line from one tab
+    # to another is a diagonal across the whole picture, and Node-RED does not
+    # draw one either. The two nodes carry each other's names instead.
     check(
-        "a link out is drawn as a wire to the link in it names",
-        any(wire["from"] == "send-on" and wire["to"] == "arrive"
-            and wire["type"] == "link" for wire in body["links"]),
+        "a jump between tabs is not drawn as a wire across the picture",
+        not any(wire["from"] == "send-on" and wire["to"] == "arrive"
+                for wire in body["links"]),
+    )
+    check(
+        "and the pair still say where they go",
+        nodes["send-on"]["title"] == "to reporting"
+        and nodes["arrive"]["title"] == "from intake",
+    )
+
+    # The spread: Node-RED's coordinates are drawn for Node-RED's own small
+    # boxes, and at one to one ours land on top of one another.
+    check(
+        "the drawing is spread to fit boxes this size",
+        nodes["parse"]["x"] > 380,
+    )
+    check(
+        "and the second tab is clear of the first, boxes and all",
+        nodes["arrive"]["y"] > nodes["send-on"]["y"] + 150,
     )
 
     check(
