@@ -1516,6 +1516,20 @@ def show_staging(work: Staging, pushing: bool = False,
 
 
 def _detail_title(at: Where) -> str:
+    """What the pane of changed files calls itself: how many, and no more.
+
+    **It used to name the commit, and that was said twice and wanted neither
+    time.** His, 2026-08-15: *"дублируется дважды информация ветка комит автор,
+    над списком изменённых файлов и под ним. эта информация вообще не нужна,
+    поскольку она уже выводится в общем списке комитов, который я выделял чтобы
+    посмотреть что поменялось"* — and he is right about the reason: you got
+    here by putting the cursor on that very row, which is three feet above and
+    already says the hash, the subject and who wrote it.
+
+    The count stays, because a heading over a list saying how long the list is
+    is not a repetition of anything. The working tree keeps how many of its
+    changes are staged, which the log row does not say.
+    """
     if not at.hash:
         return "Nothing selected"
     if at.hash == WORKING:
@@ -1524,11 +1538,7 @@ def _detail_title(at: Where) -> str:
             len(at.files),
             ", %d staged" % staged if staged else "",
         )
-    return "%s — %s%s" % (
-        at.short,
-        at.subject,
-        " · %s" % at.author if at.author else "",
-    )
+    return "Changed — %d" % len(at.files)
 
 
 #: What each shelf of the pill is called, in the order Fork stands them in.
@@ -1816,9 +1826,11 @@ def redraw(session: str, at: Where) -> dict:
     """
     options = _options.get(session, dict(plugin.settings))
     commits = _log_cache.get(session) or []
+    # **No status.** It repeated the pane's own title a line below it, and the
+    # host keeps whatever was last said — which is the repository's state, the
+    # one thing on this page that moving the cursor does not change.
     return respond(
         content=page_of(at, commits, bool(setting(options, "graph"))),
-        status=_detail_title(at),
     )
 
 
