@@ -381,8 +381,9 @@ def rows_of(commits: List[Commit], graph: bool,
 
 
 def content_of(commits: List[Commit], graph: bool,
-               avatars: bool = False) -> dict:
-    return table(columns_of(graph), rows_of(commits, graph, avatars))
+               avatars: bool = False, cursor: int = -1) -> dict:
+    return table(columns_of(graph), rows_of(commits, graph, avatars),
+                 cursor=cursor if cursor >= 0 else None)
 
 
 #: What each setting is when nothing has said otherwise. The same numbers the
@@ -1156,6 +1157,28 @@ _at: Dict[str, Where] = {}
 _log_cache: Dict[str, List[Commit]] = {}
 _options: Dict[str, Dict[str, object]] = {}
 
+#: What the way out of a commit's files is called, in the panel's path bar.
+#: Named after what the reader is going back *to*: "Back" alone leaves them to
+#: remember what they were doing three folders ago.
+BACK_TO_COMMITS = "Back to commits"
+
+#: The commit the reader was on when they fell into a repository's history,
+#: keyed by repository root.
+#:
+#: **Not by session.** The session dies with the view, and the view is exactly
+#: what closes when the panel is sent into a commit — so anything remembered
+#: there is gone by the time it is wanted. A repository outlives all of that,
+#: and it is also the right key: two panels looking at the same repository
+#: agree about which commit was being read, and two different repositories do
+#: not have to.
+_left_at: Dict[str, str] = {}
+
+
+def _remember_commit(root: str, commit_hash: str) -> None:
+    """Notes where the reader was, on the way into a commit."""
+    if root and commit_hash and commit_hash != WORKING:
+        _left_at[root] = commit_hash
+
 
 class Staging:
     """The commit being written: what is in it, what is not, and what it says.
@@ -1578,7 +1601,8 @@ def branch_pill(at: Where) -> dict:
     }
 
 
-def page_of(at: Where, commits: List[Commit], graph: bool) -> dict:
+def page_of(at: Where, commits: List[Commit], graph: bool,
+            cursor: int = -1) -> dict:
     """The whole page: the log, and underneath it what the cursor is on.
 
     The shape Fork has, and the reason the host grew parts: reading a history
@@ -1587,7 +1611,8 @@ def page_of(at: Where, commits: List[Commit], graph: bool) -> dict:
     """
     return split(
         [
-            part("log", content_of(commits, graph, at.avatars), weight=3),
+            part("log", content_of(commits, graph, at.avatars, cursor),
+                 weight=3),
             part("detail", _detail_content(at), weight=2,
                  title=_detail_title(at)),
         ]
@@ -1759,8 +1784,21 @@ def show(context, options: Optional[Dict[str, object]] = None,
     at.refs = refs_of(root)
     at.avatars = bool(setting(options, "avatars"))
     _log_cache[context.session] = commits
+
+    # **Back where you left, not at the top.** His, item 76: *"по возвращению
+    # попадаем на ту же строку комита, откуда начинали смотреть историю"*.
+    # Spent once — the note is taken as it is used, so opening the tool again
+    # later starts at the newest commit the way it always has.
+    landing = -1
+    came_back = _left_at.pop(root, "")
+    if came_back:
+        for index, commit in enumerate(commits):
+            if commit.hash == came_back:
+                landing = index
+                break
+
     if commits:
-        select_commit(at, commits[0])
+        select_commit(at, commits[landing if landing >= 0 else 0])
     count = sum(1 for commit in commits if commit.local)
     # What is on the stash is nowhere else on this page — it is not in the
     # history and not in the working tree — so the line that says what state
@@ -1769,7 +1807,7 @@ def show(context, options: Optional[Dict[str, object]] = None,
     put_aside = len(stashes_of(root))
 
     return respond(
-        content=page_of(at, commits, graph),
+        content=page_of(at, commits, graph, landing),
         # The pill says which branch, so the name beside it is the repository —
         # and there is no trail: nothing in this tool is a place you walk into
         # and back out of any more.
@@ -2774,10 +2812,12 @@ def git(context, event) -> dict:
             folder = parts[2] if len(parts) > 2 else ""
             name = parts[3] if len(parts) > 3 else None
 
+            _remember_commit(at.root, at.hash)
             actions = [navigate(
                 tree_url(at.root, ref, folder),
                 panel="self",
                 name=name,
+                back=BACK_TO_COMMITS,
             )]
             # Full screen there is no panel beside this one to look at: the
             # page covers both. Going somewhere while a page stands over it is
@@ -2984,7 +3024,9 @@ def git(context, event) -> dict:
                     "The working tree is the folder this panel is in already."
                 )])
 
-            actions = [navigate(tree_url(at.root, at.hash), panel="self")]
+            _remember_commit(at.root, at.hash)
+            actions = [navigate(tree_url(at.root, at.hash), panel="self",
+                                back=BACK_TO_COMMITS)]
             # Full screen there is nothing beside this page to look at, and a
             # page standing over the panel you have just sent somewhere is a
             # page hiding it.
