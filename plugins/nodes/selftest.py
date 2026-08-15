@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import comfyapi  # noqa: E402
 import comfyui  # noqa: E402
 import n8n  # noqa: E402
+import nodered  # noqa: E402
 import parse  # noqa: E402
 
 WORKFLOW = {
@@ -87,6 +88,7 @@ def real_files() -> None:
         ("comfyui-api-prompt.json", comfyapi, 7, 0),
         ("n8n-competitor-research.json", n8n, 20, 0),
         ("n8n-emails-to-notion.json", n8n, 10, 0),
+        ("nodered-flows.json", nodered, 7, 0),
     ):
         path = os.path.join(FIXTURES, name)
         if not os.path.exists(path):
@@ -183,6 +185,84 @@ def n8n_shape() -> None:
     )
 
 
+def nodered_shape() -> None:
+    with open(os.path.join(FIXTURES, "nodered-flows.json"), encoding="utf-8") as f:
+        flows = json.load(f)
+
+    check("a flow file is recognised", nodered.looks_like(flows))
+    check("a ComfyUI workflow is not", not nodered.looks_like(WORKFLOW))
+    check("and neither is a bare list", not nodered.looks_like([1, 2, 3]))
+
+    body, dropped = nodered.read(flows, 5000)
+    nodes = {node["id"]: node for node in body["nodes"]}
+
+    check("every placed node came through", len(nodes) == 7 and dropped == 0)
+    check(
+        "a configuration node is not on any canvas, so it is not a box",
+        "broker" not in nodes,
+    )
+    check("a comment is a note", len(body["notes"]) == 1)
+    check(
+        "and it kept both what it was called and what it said",
+        "Readings arrive" in body["notes"][0]["text"]
+        and "site/+/temperature" in body["notes"][0]["text"],
+    )
+
+    check("a tab is a group with its label on it", any(
+        group["title"] == "Intake" for group in body["groups"]))
+    check("and a group the author drew is one too", any(
+        group["title"] == "Cleaning" for group in body["groups"]))
+
+    # Each tab starts its own coordinates near the origin. Drawn as the file
+    # says, the second flow would land on top of the first.
+    check(
+        "the second tab is shifted clear of the first",
+        nodes["arrive"]["y"] > nodes["alarm"]["y"],
+    )
+
+    check("an inject-like node is an event", nodes["listen"]["role"] == "event")
+    check("a function is pure", nodes["parse"]["role"] == "pure")
+    check("a debug is an output", nodes["alarm"]["role"] == "output")
+    check("being disabled is said out loud", nodes["alarm"]["badges"] == ["muted"])
+
+    # Wires join nodes, not ports: the output is its index and the input is
+    # left off, which is exactly what the document allows this format.
+    check("outputs are numbered when there is more than one", [
+        pin["id"] for pin in nodes["range"]["outputs"]] == ["1", "2", "3"])
+    check("a single output is not numbered",
+          [pin["id"] for pin in nodes["parse"]["outputs"]] == ["out"])
+    check(
+        "a node nothing feeds has no input pin",
+        "inputs" not in nodes["listen"],
+    )
+    check(
+        "a wire from the third rule reached the node it names",
+        any(wire["from"] == "range" and wire["fromPin"] == "3"
+            and wire["to"] == "send-on" for wire in body["links"]),
+    )
+
+    # The jump. Undrawn, the flow appears to stop dead at `link out`.
+    check(
+        "a link out is drawn as a wire to the link in it names",
+        any(wire["from"] == "send-on" and wire["to"] == "arrive"
+            and wire["type"] == "link" for wire in body["links"]),
+    )
+
+    check(
+        "a rule tree is counted rather than written out",
+        any(f["label"] == "rules" and f["value"] == "3"
+            for f in nodes["range"]["fields"]),
+    )
+    check(
+        "and a function's code is on its face, cut to what fits",
+        any(f["label"] == "func" and "msg.payload" in f["value"]
+            for f in nodes["parse"]["fields"]),
+    )
+
+    small, cut = nodered.read(flows, 3)
+    check("past the cap the flows are cut", len(small["nodes"]) == 3 and cut == 4)
+
+
 def api_shape() -> None:
     prompt = {
         "11": {"class_type": "CheckpointLoaderSimple",
@@ -270,6 +350,7 @@ def main() -> None:
     check("past the cap the graph is cut", len(small["nodes"]) == 2 and cut == 1)
 
     n8n_shape()
+    nodered_shape()
     api_shape()
     real_files()
 

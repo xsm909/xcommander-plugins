@@ -24,7 +24,11 @@ other, and the host draws it.
 
 **One plugin, several readers**, which was his answer on 2026-08-15: less to
 install, and the document schema stays honest by having more than one user of it.
-ComfyUI's native form is the first; n8n and Node-RED follow.
+ComfyUI's native form is the first; n8n, Node-RED and the API export follow.
+LiteGraph documents need no reader of their own — ComfyUI *is* LiteGraph, and a
+class the table has never heard of gets numbered values rather than guessed
+labels, which is the honest answer for a graph from some other editor built on
+it.
 
 **Why it does not win `.json`.** Every one of these formats is a `.json`, and
 `.json` belongs to the text viewer — a graph reader that took it outright would
@@ -46,6 +50,7 @@ from xcommander import Plugin, error, nodes  # noqa: E402
 import comfyapi  # noqa: E402
 import comfyui  # noqa: E402
 import n8n  # noqa: E402
+import nodered  # noqa: E402
 import parse  # noqa: E402
 
 plugin = Plugin("org.xcommander.nodes", "Node graphs")
@@ -92,7 +97,7 @@ def graph(url: str) -> dict:
     if refusal is not None:
         return refusal
 
-    for reader in (comfyui, n8n, comfyapi):
+    for reader in (comfyui, n8n, nodered, comfyapi):
         if not reader.looks_like(document):
             continue
         body, dropped = reader.read(document, MAX_NODES)
@@ -112,8 +117,8 @@ def graph(url: str) -> dict:
     # is the rare case, and when it happens the honest answer is a sentence.
     return error(
         "This JSON is not a node graph the reader knows: "
-        "ComfyUI workflows, their API exports and n8n exports are the ones "
-        "it reads so far."
+        "ComfyUI workflows, their API exports, n8n exports and Node-RED "
+        "flows are the ones it reads so far."
     )
 
 

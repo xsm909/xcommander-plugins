@@ -51,7 +51,7 @@
     "pythonMin": "3.12",
     "category": "Tools",
     "icon": null,
-    "updated": null
+    "updated": "2026-08-14T23:56:55+02:00"
   },
   {
     "folder": "fbx",
@@ -93,7 +93,7 @@
     "folder": "git",
     "id": "org.xcommander.git",
     "name": "Git",
-    "version": "0.32.0",
+    "version": "0.36.0",
     "description": "The repository the panel is standing in, on one page: its branches, its log with the shape of the history drawn, what each commit touched and the difference itself.",
     "runtime": "python",
     "apiVersion": 1,
@@ -105,7 +105,7 @@
     "pythonMin": "3.12",
     "category": "Tools",
     "icon": "icon.png",
-    "updated": "2026-08-14T23:52:37+02:00"
+    "updated": "2026-08-15T09:59:53+02:00"
   },
   {
     "folder": "image",
@@ -120,6 +120,24 @@
     "category": "Viewers",
     "icon": null,
     "updated": "2026-08-14T22:28:16+02:00"
+  },
+  {
+    "folder": "nodes",
+    "id": "org.xcommander.nodes",
+    "name": "Node graphs",
+    "version": "0.4.0",
+    "description": "Files that are a node graph, drawn as one: a ComfyUI workflow with its prompts and seeds on the boxes, the API export the server is sent, an n8n export with its sticky notes and the agents' tools, and Node-RED flows with a box per tab. Shift+F3 on a .json.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Viewers",
+    "icon": "view",
+    "updated": "2026-08-15T22:28:24+02:00"
   },
   {
     "folder": "smb",
@@ -161,7 +179,7 @@
     "folder": "viewer",
     "id": "org.xcommander.builtin.viewer",
     "name": "Files as text",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "description": "One viewer for the files that are text: plain, coloured by language, formatted JSON, Markdown, delimited tables, numbered lines, and the hex dump nothing else claims. Shift+F3 chooses between the readings.",
     "runtime": "declarative",
     "apiVersion": 1,
@@ -169,7 +187,7 @@
     "pythonMin": null,
     "category": "Viewers",
     "icon": null,
-    "updated": "2026-08-14T22:40:42+02:00"
+    "updated": "2026-08-15T10:52:21+02:00"
   },
   {
     "folder": "web",

@@ -1,0 +1,121 @@
+[
+  {
+    "id": "tab-intake",
+    "type": "tab",
+    "label": "Intake",
+    "disabled": false,
+    "info": ""
+  },
+  {
+    "id": "tab-report",
+    "type": "tab",
+    "label": "Reporting",
+    "disabled": false,
+    "info": ""
+  },
+  {
+    "id": "broker",
+    "type": "mqtt-broker",
+    "name": "site broker",
+    "broker": "mqtt.example.invalid",
+    "port": "1883"
+  },
+  {
+    "id": "note-1",
+    "type": "comment",
+    "z": "tab-intake",
+    "name": "Readings arrive every 30s",
+    "info": "The sensor publishes to site/+/temperature.\nThe function turns the payload into a number.",
+    "x": 150,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "group-clean",
+    "type": "group",
+    "z": "tab-intake",
+    "name": "Cleaning",
+    "style": {"label": true},
+    "nodes": ["parse", "range"],
+    "x": 300,
+    "y": 80,
+    "w": 420,
+    "h": 180
+  },
+  {
+    "id": "listen",
+    "type": "mqtt in",
+    "z": "tab-intake",
+    "name": "site/+/temperature",
+    "topic": "site/+/temperature",
+    "broker": "broker",
+    "x": 150,
+    "y": 140,
+    "wires": [["parse"]]
+  },
+  {
+    "id": "parse",
+    "type": "function",
+    "z": "tab-intake",
+    "name": "to a number",
+    "func": "msg.payload = Number(msg.payload);\nreturn msg;",
+    "outputs": 1,
+    "x": 380,
+    "y": 140,
+    "wires": [["range"]]
+  },
+  {
+    "id": "range",
+    "type": "switch",
+    "z": "tab-intake",
+    "name": "in range?",
+    "property": "payload",
+    "rules": [{"t": "lt", "v": "0"}, {"t": "gt", "v": "40"}, {"t": "else"}],
+    "x": 600,
+    "y": 140,
+    "wires": [["alarm"], ["alarm"], ["send-on"]]
+  },
+  {
+    "id": "alarm",
+    "type": "debug",
+    "z": "tab-intake",
+    "name": "out of range",
+    "d": true,
+    "complete": "payload",
+    "x": 830,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "send-on",
+    "type": "link out",
+    "z": "tab-intake",
+    "name": "to reporting",
+    "mode": "link",
+    "links": ["arrive"],
+    "x": 830,
+    "y": 180,
+    "wires": []
+  },
+  {
+    "id": "arrive",
+    "type": "link in",
+    "z": "tab-report",
+    "name": "from intake",
+    "links": ["send-on"],
+    "x": 140,
+    "y": 120,
+    "wires": [["store"]]
+  },
+  {
+    "id": "store",
+    "type": "file",
+    "z": "tab-report",
+    "name": "append to the log",
+    "filename": "/var/log/readings.csv",
+    "appendNewline": true,
+    "x": 380,
+    "y": 120,
+    "wires": [[]]
+  }
+]
