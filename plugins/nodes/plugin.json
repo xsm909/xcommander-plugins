@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.nodes",
   "name": "Node graphs",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Files that are a node graph, drawn as one: a ComfyUI workflow with its prompts and seeds on the boxes, the API export the server is sent, an n8n export with its sticky notes and the agents' tools, and Node-RED flows with a frame per tab. Shift+F3 on a .json.",
   "category": "Viewers",
   "author": "xcommander",

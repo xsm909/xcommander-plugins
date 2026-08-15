@@ -79,6 +79,49 @@ def check(what: str, ok: bool) -> None:
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 
+def claims() -> None:
+    """Exactly one reader claims each kind of file.
+
+    **The check that was missing, and it cost him a working file.** Every reader
+    was tested by calling it directly, so nobody ever asked the question the
+    application asks first: *which of you claims this?* ComfyUI's claim was "a
+    list of nodes, each with a type and an id", which is equally true of an n8n
+    export — and being asked first, it took every n8n workflow and drew thirty
+    nodes with no coordinates between them, all at the origin. On screen that is
+    one node.
+    """
+    readers = (("comfyui", comfyui), ("n8n", n8n),
+               ("nodered", nodered), ("comfyapi", comfyapi))
+
+    for name, expected in (
+        ("comfyui-workflow.json", "comfyui"),
+        ("comfyui-api-prompt.json", "comfyapi"),
+        ("n8n-competitor-research.json", "n8n"),
+        ("n8n-emails-to-notion.json", "n8n"),
+        ("nodered-flows.json", "nodered"),
+    ):
+        path = os.path.join(FIXTURES, name)
+        if not os.path.exists(path):
+            print("skip " + name)
+            continue
+        with open(path, encoding="utf-8") as handle:
+            document = parse.first_document(handle.read())
+        claimed = [who for who, reader in readers if reader.looks_like(document)]
+        check("%s is claimed by %s and nobody else" % (name, expected),
+              claimed == [expected])
+
+    # And a JSON file that is not a graph at all is claimed by none of them.
+    for document in (
+        {"name": "x", "version": "1.0.0", "scripts": {"build": "vite"}},
+        {"nodes": "not a list"},
+        [1, 2, 3],
+        "a string",
+    ):
+        claimed = [who for who, reader in readers if reader.looks_like(document)]
+        check("an ordinary JSON document is claimed by nobody: %s"
+              % (str(document)[:30],), claimed == [])
+
+
 def real_files() -> None:
     # The last number is how many wires name a node the file does not contain.
     # The ComfyUI fixture carries one on purpose: dropping it is the host's job,
@@ -367,6 +410,7 @@ def main() -> None:
     small, cut = comfyui.read(WORKFLOW, 2)
     check("past the cap the graph is cut", len(small["nodes"]) == 2 and cut == 1)
 
+    claims()
     n8n_shape()
     nodered_shape()
     api_shape()

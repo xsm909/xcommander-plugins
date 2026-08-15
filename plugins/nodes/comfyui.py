@@ -78,14 +78,33 @@ ROLES: List[Tuple[str, str]] = [
 
 
 def looks_like(document: Any) -> bool:
-    """Whether this is a ComfyUI workflow as the editor saves it."""
+    """Whether this is a ComfyUI workflow — or any LiteGraph document — as the
+    editor saves it.
+
+    **Claims have to be exclusive, and this one was not.** "A list of nodes,
+    each with a `type` and an `id`" is true of an n8n export as well, and since
+    this reader is asked first, every n8n workflow opened in the application was
+    read by *this* — thirty nodes with no `pos` between them, all drawn at the
+    origin, which on screen is one node. Reported 2026-08-16: *"сейчас только
+    одна нода отражается"*. It was never seen in the self-test because that
+    calls each reader directly and never asks which of them claims a file.
+
+    So it asks for something only LiteGraph has: coordinates on the node, or the
+    flat `links` table that n8n and Node-RED have no equivalent of. And it steps
+    aside for a document carrying n8n's own `connections` map.
+    """
     if not isinstance(document, dict):
         return False
     nodes = document.get("nodes")
     if not isinstance(nodes, list) or not nodes:
         return False
     first = nodes[0]
-    return isinstance(first, dict) and "type" in first and "id" in first
+    if not isinstance(first, dict) or "type" not in first or "id" not in first:
+        return False
+    # n8n's, and it keys its wires by node *name*. Not ours.
+    if isinstance(document.get("connections"), dict):
+        return False
+    return "pos" in first or isinstance(document.get("links"), list)
 
 
 def role_of(class_name: str) -> str:
