@@ -1,8 +1,8 @@
 {
   "id": "org.xcommander.nodes",
   "name": "Node graphs",
-  "version": "0.1.0",
-  "description": "Files that are a node graph, drawn as one: a ComfyUI workflow with its prompts and seeds on the boxes, and the wires between them. Shift+F3 on a .json that is a workflow.",
+  "version": "0.2.0",
+  "description": "Files that are a node graph, drawn as one: a ComfyUI workflow with its prompts and seeds on the boxes, an n8n export with its sticky notes and the agents' tools, and the wires between them. Shift+F3 on a .json.",
   "category": "Viewers",
   "author": "xcommander",
   "homepage": "https://github.com/xsm909/xcommander-plugins",

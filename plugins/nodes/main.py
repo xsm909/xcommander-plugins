@@ -36,7 +36,6 @@ will open as one on F3.
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 
@@ -45,6 +44,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from xcommander import Plugin, error, nodes  # noqa: E402
 
 import comfyui  # noqa: E402
+import n8n  # noqa: E402
+import parse  # noqa: E402
 
 plugin = Plugin("org.xcommander.nodes", "Node graphs")
 
@@ -77,8 +78,9 @@ def _load(url: str):
     except Exception as failure:  # noqa: BLE001
         return None, error("The file is not text: %s" % failure)
 
+    # The first document, and nothing about what follows it — see `parse`.
     try:
-        return json.loads(text), None
+        return parse.first_document(text), None
     except Exception as failure:  # noqa: BLE001
         return None, error("This is not JSON: %s" % failure)
 
@@ -89,8 +91,10 @@ def graph(url: str) -> dict:
     if refusal is not None:
         return refusal
 
-    if comfyui.looks_like(document):
-        body, dropped = comfyui.read(document, MAX_NODES)
+    for reader in (comfyui, n8n):
+        if not reader.looks_like(document):
+            continue
+        body, dropped = reader.read(document, MAX_NODES)
         return nodes(
             body["nodes"],
             links=body["links"],
@@ -104,7 +108,7 @@ def graph(url: str) -> dict:
     # is the rare case, and when it happens the honest answer is a sentence.
     return error(
         "This JSON is not a node graph the reader knows: "
-        "ComfyUI workflows are the ones it reads so far."
+        "ComfyUI workflows and n8n exports are the ones it reads so far."
     )
 
 

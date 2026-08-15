@@ -31,6 +31,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import comfyui  # noqa: E402
+import n8n  # noqa: E402
+import parse  # noqa: E402
 
 WORKFLOW = {
     "nodes": [
@@ -67,6 +69,116 @@ def check(what: str, ok: bool) -> None:
     print(("ok   " if ok else "FAIL ") + what)
     if not ok:
         raise SystemExit(1)
+
+
+#: The real files he handed over on 2026-08-15, kept beside the reader that
+#: reads them. They are the only honest test of a format: a fixture written by
+#: hand tests what the author believed, not what an exporter writes.
+FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
+
+
+def real_files() -> None:
+    # The last number is how many wires name a node the file does not contain.
+    # The ComfyUI fixture carries one on purpose: dropping it is the host's job,
+    # not the reader's, and the page says how many went.
+    for name, reader, least, loose_expected in (
+        ("comfyui-workflow.json", comfyui, 4, 1),
+        ("n8n-competitor-research.json", n8n, 20, 0),
+        ("n8n-emails-to-notion.json", n8n, 10, 0),
+    ):
+        path = os.path.join(FIXTURES, name)
+        if not os.path.exists(path):
+            print("skip " + name)
+            continue
+
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+
+        # **The file as it really is.** Both n8n exports came off a web page
+        # with the workflow's title repeated three times after the closing
+        # brace; `json.loads` refuses the lot, and the graph would never open.
+        document = parse.first_document(text)
+        check("%s parses despite what is after it" % name, document is not None)
+        check("%s is recognised" % name, reader.looks_like(document))
+
+        body, dropped = reader.read(document, 5000)
+        check(
+            "%s came through: %d nodes, %d wires"
+            % (name, len(body["nodes"]), len(body["links"])),
+            len(body["nodes"]) >= least and dropped == 0,
+        )
+
+        # Every wire has a node at both ends, or the host drops it and the page
+        # says so. A reader that leaks dangling wires is a reader with a bug.
+        ids = {node["id"] for node in body["nodes"]}
+        loose = [
+            wire
+            for wire in body["links"]
+            if wire["from"] not in ids or wire["to"] not in ids
+        ]
+        check(
+            "%s leaves exactly the loose wires the file has (%d)"
+            % (name, loose_expected),
+            len(loose) == loose_expected,
+        )
+
+
+def n8n_shape() -> None:
+    workflow = {
+        "nodes": [
+            {
+                "id": "1",
+                "name": "When clicking",
+                "type": "n8n-nodes-base.manualTrigger",
+                "position": [0, 0],
+                "parameters": {},
+            },
+            {
+                "id": "2",
+                "name": "Agent",
+                "type": "@n8n/n8n-nodes-langchain.agent",
+                "position": [200, 0],
+                "parameters": {"prompt": "do the thing"},
+            },
+            {
+                "id": "3",
+                "name": "Sticky Note",
+                "type": "n8n-nodes-base.stickyNote",
+                "position": [-40, -60],
+                "parameters": {"content": "## Try it", "width": 300, "height": 200},
+            },
+        ],
+        "connections": {
+            "When clicking": {
+                "main": [[{"node": "Agent", "type": "main", "index": 0}]]
+            },
+        },
+    }
+
+    check("an n8n export is recognised", n8n.looks_like(workflow))
+    body, _ = n8n.read(workflow, 5000)
+    nodes = {node["id"]: node for node in body["nodes"]}
+
+    check("a sticky note is a note, not a box", len(body["nodes"]) == 2)
+    check("and it kept what was written on it", body["notes"][0]["text"].startswith("## Try it"))
+    check("a trigger is an event", nodes["When clicking"]["role"] == "event")
+    check(
+        "connections are keyed by name, and that is what the ids are",
+        body["links"][0]["from"] == "When clicking"
+        and body["links"][0]["to"] == "Agent",
+    )
+    check(
+        "the run order is a flow wire, not a data one",
+        body["links"][0]["role"] == "flow",
+    )
+    check(
+        "pins are worked out from the wires, because the file never says",
+        nodes["Agent"]["inputs"][0]["id"] == "main",
+    )
+    check(
+        "and a parameter worth reading is on the face of the node",
+        nodes["Agent"]["fields"][0]["value"] == "do the thing",
+    )
 
 
 def main() -> None:
@@ -112,6 +224,9 @@ def main() -> None:
     # The cap, and the count that goes with it.
     small, cut = comfyui.read(WORKFLOW, 2)
     check("past the cap the graph is cut", len(small["nodes"]) == 2 and cut == 1)
+
+    n8n_shape()
+    real_files()
 
     print(json.dumps(body["nodes"][0], indent=2))
 

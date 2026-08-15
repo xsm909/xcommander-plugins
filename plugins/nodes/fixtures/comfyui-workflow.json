@@ -1,0 +1,46 @@
+{
+  "last_node_id": 4,
+  "last_link_id": 4,
+  "nodes": [
+    {
+      "id": 1, "type": "CheckpointLoaderSimple", "pos": [20, 60], "size": [240, 90],
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "links": [1]},
+        {"name": "CLIP", "type": "CLIP", "links": [2]},
+        {"name": "VAE", "type": "VAE", "links": [4]}
+      ],
+      "widgets_values": ["sd_xl_base_1.0.safetensors"]
+    },
+    {
+      "id": 2, "type": "CLIPTextEncode", "pos": [300, 40], "size": [260, 80],
+      "inputs": [{"name": "clip", "type": "CLIP", "link": 2}],
+      "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": [3]}],
+      "widgets_values": ["a lighthouse in a storm, oil painting"]
+    },
+    {
+      "id": 3, "type": "KSampler", "pos": [600, 60], "size": [250, 140],
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 1},
+        {"name": "positive", "type": "CONDITIONING", "link": 3}
+      ],
+      "outputs": [{"name": "LATENT", "type": "LATENT", "links": [5]}],
+      "widgets_values": [812734, "randomize", 20, 8.0, "euler", "normal", 1.0]
+    },
+    {
+      "id": 4, "type": "SaveImage", "title": "Write it out", "pos": [900, 80],
+      "size": [220, 70],
+      "inputs": [{"name": "images", "type": "IMAGE", "link": 5}],
+      "widgets_values": ["storm"]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 3, 0, "MODEL"],
+    [2, 1, 1, 2, 0, "CLIP"],
+    [3, 2, 0, 3, 1, "CONDITIONING"],
+    [5, 3, 0, 4, 0, "LATENT"],
+    [9, 3, 0, 77, 0, "LATENT"]
+  ],
+  "groups": [
+    {"title": "Conditioning", "bounding": [280, 10, 300, 140]}
+  ]
+}
