@@ -122,6 +122,57 @@ def claims() -> None:
               % (str(document)[:30],), claimed == [])
 
 
+def probes() -> None:
+    """The same matrix, asked the way the host now asks it: of the file's first
+    pages, before anything has been parsed.
+
+    Two halves, because the host sends whatever 64 kilobytes reach — a small
+    fixture arrives whole and a large one arrives cut, usually inside a string.
+    Both have to give the same answer, and **an ordinary JSON file has to be
+    refused by both**: a wrong yes takes a file away from the viewer that
+    should have opened it.
+    """
+    readers = (("comfyui", comfyui), ("n8n", n8n),
+               ("nodered", nodered), ("comfyapi", comfyapi))
+
+    for name, expected in (
+        ("comfyui-workflow.json", "comfyui"),
+        ("comfyui-api-prompt.json", "comfyapi"),
+        ("n8n-competitor-research.json", "n8n"),
+        ("n8n-emails-to-notion.json", "n8n"),
+        ("nodered-flows.json", "nodered"),
+    ):
+        path = os.path.join(FIXTURES, name)
+        if not os.path.exists(path):
+            print("skip " + name)
+            continue
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+
+        whole = [who for who, reader in readers if reader.signature(text)]
+        check("%s is recognised from its text by %s and nobody else"
+              % (name, expected), whole == [expected])
+
+        # Cut where the host cuts, and again far shorter than that: the first
+        # keys are what these editors write first, and if that is not true of a
+        # format then its signature is the thing to fix.
+        for cut in (64 << 10, 4 << 10):
+            head = text[:cut]
+            claimed = [who for who, reader in readers if reader.signature(head)]
+            check("%s is recognised from its first %d bytes by %s"
+                  % (name, cut, expected), claimed == [expected])
+
+    for text in (
+        '{"name": "x", "version": "1.0.0", "scripts": {"build": "vite"}}',
+        '{"nodes": ["not", "a", "graph"]}',
+        '[1, 2, 3]',
+        '{"connections": {"a": 1}}',
+    ):
+        claimed = [who for who, reader in readers if reader.signature(text)]
+        check("an ordinary JSON file is recognised by nobody: %s" % text[:30],
+              claimed == [])
+
+
 def real_files() -> None:
     # The last number is how many wires name a node the file does not contain.
     # The ComfyUI fixture carries one on purpose: dropping it is the host's job,
@@ -411,6 +462,7 @@ def main() -> None:
     check("past the cap the graph is cut", len(small["nodes"]) == 2 and cut == 1)
 
     claims()
+    probes()
     n8n_shape()
     nodered_shape()
     api_shape()

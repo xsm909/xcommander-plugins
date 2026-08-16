@@ -30,12 +30,13 @@ class the table has never heard of gets numbered values rather than guessed
 labels, which is the honest answer for a graph from some other editor built on
 it.
 
-**Why it does not win `.json`.** Every one of these formats is a `.json`, and
-`.json` belongs to the text viewer — a graph reader that took it outright would
-open `package.json` as an empty canvas. So this claims the extension at a lower
-priority and the graph is one **Shift+F3** away, the same cycle that puts the hex
-dump behind text. When the host grows `probe`, a file that really is a workflow
-will open as one on F3.
+**How it wins the `.json` files that are its own, and only those.** Every one of
+these formats is a `.json`, and `.json` belongs to the text viewer — a reader
+that took the extension outright would open `package.json` as an empty canvas.
+So it claims the extension at a lower priority *and* declares a **probe**: the
+host hands it the first pages of the file before it settles the order, and a
+file that really is a workflow opens on **F3**. Anything else falls through to
+the text viewer exactly as before, and the graph stays one Shift+F3 away.
 """
 
 from __future__ import annotations
@@ -91,13 +92,54 @@ def _load(url: str):
         return None, error("This is not JSON: %s" % failure)
 
 
-@plugin.viewer("nodes.graph", "Node graph", extensions=["json"], priority=5)
+#: The readers, in the order they are asked. Exactly one may claim a file —
+#: `selftest.claims` holds that, and a new reader adds a row to it.
+READERS = (comfyui, n8n, nodered, comfyapi)
+
+
+def looks_like_a_graph(head: bytes) -> bool:
+    """Whether the file whose first pages these are is a graph — the question
+    the host asks before it decides which viewer opens a `.json`.
+
+    Answering it is what puts a workflow on **F3** instead of one Shift+F3
+    further on, and what keeps `package.json` out of the canvas.
+
+    Two ways of answering, in order. A small file arrives whole, and then the
+    honest answer is the same one opening it would give — the readers' own
+    `looks_like`, over a real document. A large one arrives cut, usually inside
+    a string, and then each reader is asked about the *text* instead: the keys
+    its editor writes near the front. **A wrong yes is worse than a missed
+    one** — it takes a file away from the viewer that should have had it — so
+    both halves are written to say no when they are not sure.
+    """
+    try:
+        text = head.decode("utf-8-sig", errors="replace")
+    except Exception:  # noqa: BLE001
+        return False
+
+    try:
+        document = parse.first_document(text)
+    except Exception:  # noqa: BLE001
+        document = None
+    if document is not None:
+        return any(reader.looks_like(document) for reader in READERS)
+
+    return any(reader.signature(text) for reader in READERS)
+
+
+@plugin.viewer(
+    "nodes.graph",
+    "Node graph",
+    extensions=["json"],
+    priority=5,
+    probe=looks_like_a_graph,
+)
 def graph(url: str) -> dict:
     document, refusal = _load(url)
     if refusal is not None:
         return refusal
 
-    for reader in (comfyui, n8n, nodered, comfyapi):
+    for reader in READERS:
         if not reader.looks_like(document):
             continue
         body, dropped = reader.read(document, MAX_NODES)

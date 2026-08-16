@@ -102,6 +102,21 @@ def looks_like(document: Any) -> bool:
     )
 
 
+def signature(head: str) -> bool:
+    """Whether the first pages of a file look like an n8n export.
+
+    **Not `connections`**, which is the thing `looks_like` asks a whole document
+    for: n8n writes its nodes first and its wires last, so in a real export the
+    word does not appear until tens of kilobytes in — the self-test caught that
+    on his own competitor-research workflow. What *is* at the front is the node
+    shape, and `typeVersion` beside a `position` is n8n's alone: LiteGraph
+    writes `pos`, Node-RED writes bare `x` and `y`, and neither versions its
+    node types.
+    """
+    if '"typeVersion"' not in head:
+        return False
+    return '"position"' in head or '"connections"' in head
+
 def role_of(kind: str) -> str:
     for needle, role in ROLES:
         if needle.lower() in kind.lower():

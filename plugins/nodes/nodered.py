@@ -150,6 +150,11 @@ def looks_like(document: Any) -> bool:
     )
 
 
+def signature(head: str) -> bool:
+    """Node-RED writes a flat list whose entries carry `wires` and the `z` of
+    the tab they live on. Nothing else here writes either word."""
+    return '"wires"' in head and ('"z"' in head or '"tab"' in head)
+
 def role_of(kind: str) -> str:
     lowered = kind.lower()
     for needle, role in ROLES:

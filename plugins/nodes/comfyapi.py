@@ -61,6 +61,11 @@ def looks_like(document: Any) -> bool:
     return True
 
 
+def signature(head: str) -> bool:
+    """An API export is a map of nodes each carrying a `class_type`, which is a
+    word no other format here writes."""
+    return '"class_type"' in head
+
 def role_of(class_name: str) -> str:
     for needle, role in ROLES:
         if needle in class_name:

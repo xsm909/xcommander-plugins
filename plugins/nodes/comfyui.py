@@ -107,6 +107,24 @@ def looks_like(document: Any) -> bool:
     return "pos" in first or isinstance(document.get("links"), list)
 
 
+def signature(head: str) -> bool:
+    """Whether the first pages of a file look like this format — the question
+    the host asks before it decides which viewer opens a `.json`.
+
+    **A head is not a document.** It stops wherever 64 kilobytes stop, usually
+    inside a string, so this reads for the keys the editor writes near the
+    front rather than parsing anything. `widgets_values` is LiteGraph's alone;
+    `last_node_id` is what the editor stamps at the top of every file it saves.
+    """
+    if '"connections"' in head:  # n8n's, and it is not ours
+        return False
+    return (
+        '"widgets_values"' in head
+        or '"last_node_id"' in head
+        or ('"nodes"' in head and '"pos"' in head)
+    )
+
+
 def role_of(class_name: str) -> str:
     for needle, role in ROLES:
         if needle in class_name:
