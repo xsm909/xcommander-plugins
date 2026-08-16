@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import comfyapi
 import comfyui
+import godot
 import n8n
 import nodered
 import parse
@@ -62,6 +63,11 @@ def looks_like_a_graph(head: bytes) -> bool:
         text = head.decode("utf-8-sig", errors="replace")
     except Exception:  # noqa: BLE001
         return False
+
+    # A Godot scene is the one graph here that is not JSON, so it is asked
+    # first — nothing else would recognise it, and it recognises nothing else.
+    if godot.signature(text):
+        return True
 
     try:
         document = parse.first_document(text)

@@ -37,6 +37,7 @@ import nodered  # noqa: E402
 import parse
 import png  # noqa: E402
 import claim  # noqa: E402
+import godot  # noqa: E402
 
 WORKFLOW = {
     "nodes": [
@@ -164,6 +165,17 @@ def probes() -> None:
             check("%s is recognised from its first %d bytes by %s"
                   % (name, cut, expected), claimed == [expected])
 
+    # A Godot scene is not JSON at all, so no JSON reader may recognise it —
+    # and the plugin as a whole must, or it would not open on F3.
+    scene = open(
+        os.path.join(FIXTURES, "godot-player.tscn"), encoding="utf-8"
+    ).read()
+    check(
+        "a scene is recognised by the plugin and by no JSON reader",
+        claim.looks_like_a_graph(scene.encode())
+        and not [who for who, reader in readers if reader.signature(scene)],
+    )
+
     for text in (
         '{"name": "x", "version": "1.0.0", "scripts": {"build": "vite"}}',
         '{"nodes": ["not", "a", "graph"]}',
@@ -261,6 +273,74 @@ def pictures() -> None:
         "a picture is never claimed, workflow or no workflow",
         not claim.looks_like_a_graph(data),
     )
+
+
+def scenes() -> None:
+    """A Godot scene: the tree, the signals across it, and what is not a node.
+
+    The one reader here that is not JSON, so it is checked on its own terms —
+    a real-shaped scene with an instanced resource, a script, a nested child
+    and two signals, which is what a `.tscn` looks like after five minutes of
+    work in the editor.
+    """
+    path = os.path.join(FIXTURES, "godot-player.tscn")
+    if not os.path.exists(path):
+        print("skip godot-player.tscn")
+        return
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+
+    check("a scene is recognised", godot.looks_like(text))
+    check(
+        "a script that merely mentions a node is not one",
+        not godot.looks_like("extends Node2D\n\nfunc _ready():\n\tpass\n"),
+    )
+
+    body, dropped = godot.read(text, 5000)
+    ids = [node["id"] for node in body["nodes"]]
+
+    check("the root is the scene itself", ids[0] == ".")
+    check(
+        "a child is named by its path, and a grandchild by the whole of it",
+        "Sprite" in ids and "Sprite/Camera" in ids and "Hitbox/Shape" in ids,
+    )
+    check(
+        "resources and sub-resources are not nodes",
+        len(ids) == 6 and dropped == 0,
+    )
+    check(
+        "the type is written under the name",
+        body["nodes"][0]["subtitle"] == "CharacterBody2D",
+    )
+    check(
+        "a node with a script on it is one that runs",
+        any(
+            field["label"] == "script"
+            for field in body["nodes"][0]["fields"]
+        ),
+    )
+
+    tree = [link for link in body["links"] if link["role"] == "data"]
+    signals = [link for link in body["links"] if link["role"] == "flow"]
+    check("the tree is drawn as wires, one per child", len(tree) == 5)
+    check(
+        "and every one of them joins a node that is here",
+        all(link["from"] in ids and link["to"] in ids for link in tree),
+    )
+    check("the signals are the other kind of wire", len(signals) == 2)
+    check(
+        "and each says which signal calls which method",
+        all("→" in (link.get("label") or "") for link in signals),
+    )
+    check(
+        "a scene carries no coordinates, so the host lays it out, downwards",
+        body["layout"] == "layered" and body["direction"] == "tb",
+    )
+
+    # The cap is the host's promise, and it is kept here too.
+    small, cut = godot.read(text, 3)
+    check("past the cap the scene is cut, and the cut is counted",
+          len(small["nodes"]) == 3 and cut == 3)
 
 
 def real_files() -> None:
@@ -554,6 +634,7 @@ def main() -> None:
     claims()
     probes()
     pictures()
+    scenes()
     n8n_shape()
     nodered_shape()
     api_shape()

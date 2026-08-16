@@ -125,8 +125,8 @@
     "folder": "nodes",
     "id": "org.xcommander.nodes",
     "name": "Node graphs",
-    "version": "0.6.0",
-    "description": "Files that are a node graph, drawn as one: a ComfyUI workflow with its prompts and seeds on the boxes, the API export the server is sent, an n8n export with its sticky notes and the agents' tools, and Node-RED flows with a frame per tab. Shift+F3 on a .json.",
+    "version": "0.7.0",
+    "description": "Files that are a node graph, drawn as one: a ComfyUI workflow with its prompts and seeds on the boxes, the API export the server is sent, an n8n export with its sticky notes and the agents' tools, and Node-RED flows, Godot scenes with a frame per tab. Shift+F3 on a .json.",
     "runtime": "python",
     "apiVersion": 1,
     "platforms": [
@@ -137,7 +137,7 @@
     "pythonMin": "3.12",
     "category": "Viewers",
     "icon": "view",
-    "updated": "2026-08-16T09:36:33+02:00"
+    "updated": "2026-08-16T10:37:14+02:00"
   },
   {
     "folder": "smb",

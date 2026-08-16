@@ -24,7 +24,8 @@ other, and the host draws it.
 
 **One plugin, several readers**, which was his answer on 2026-08-15: less to
 install, and the document schema stays honest by having more than one user of it.
-ComfyUI's native form is the first; n8n, Node-RED and the API export follow.
+ComfyUI's native form is the first; n8n, Node-RED, the API export and Godot
+scenes follow.
 LiteGraph documents need no reader of their own — ComfyUI *is* LiteGraph, and a
 class the table has never heard of gets numbered values rather than guessed
 labels, which is the honest answer for a graph from some other editor built on
@@ -58,6 +59,7 @@ import comfyapi  # noqa: E402
 import comfyui  # noqa: E402
 import n8n  # noqa: E402
 import nodered  # noqa: E402
+import godot  # noqa: E402
 import parse  # noqa: E402
 import png  # noqa: E402
 
@@ -114,6 +116,11 @@ def _load(url: str):
     except Exception as failure:  # noqa: BLE001
         return None, error("The file is not text: %s" % failure)
 
+    # A Godot scene is sections and properties rather than JSON, so it comes
+    # back as text and is read by the one reader here that wants text.
+    if godot.looks_like(text):
+        return text, None
+
     # The first document, and nothing about what follows it — see `parse`.
     try:
         return parse.first_document(text), None
@@ -124,7 +131,7 @@ def _load(url: str):
 @plugin.viewer(
     "nodes.graph",
     "Node graph",
-    extensions=["json", "png"],
+    extensions=["json", "png", "tscn", "escn"],
     priority=5,
     probe=looks_like_a_graph,
 )
@@ -132,6 +139,19 @@ def graph(url: str) -> dict:
     document, refusal = _load(url)
     if refusal is not None:
         return refusal
+
+    # The scene reader takes text; the rest take a parsed document.
+    if isinstance(document, str):
+        body, dropped = godot.read(document, MAX_NODES)
+        return nodes(
+            body["nodes"],
+            links=body["links"],
+            groups=body["groups"],
+            notes=body["notes"],
+            layout=body["layout"],
+            direction=body["direction"],
+            truncated=dropped > 0,
+        )
 
     for reader in READERS:
         if not reader.looks_like(document):
