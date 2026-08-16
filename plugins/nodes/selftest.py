@@ -34,7 +34,9 @@ import comfyapi  # noqa: E402
 import comfyui  # noqa: E402
 import n8n  # noqa: E402
 import nodered  # noqa: E402
-import parse  # noqa: E402
+import parse
+import png  # noqa: E402
+import claim  # noqa: E402
 
 WORKFLOW = {
     "nodes": [
@@ -171,6 +173,94 @@ def probes() -> None:
         claimed = [who for who, reader in readers if reader.signature(text)]
         check("an ordinary JSON file is recognised by nobody: %s" % text[:30],
               claimed == [])
+
+
+def pictures() -> None:
+    """The workflow inside the picture — chunk by chunk, and all three kinds.
+
+    A ComfyUI image is built here rather than kept as a fixture: what is being
+    checked is the walk over the chunks, and a hand-built PNG says exactly what
+    is in it. The three text chunks are the three ways the format carries
+    words, and the editor has used more than one of them over the years.
+    """
+    import json as _json
+    import zlib
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return (
+            len(body).to_bytes(4, "big")
+            + kind
+            + body
+            + zlib.crc32(kind + body).to_bytes(4, "big")
+        )
+
+    workflow = _json.dumps(
+        {"nodes": [{"id": 1, "type": "KSampler", "pos": [0, 0]}], "links": []}
+    )
+
+    def picture(kind: bytes, key: str, text: str) -> bytes:
+        if kind == b"tEXt":
+            body = key.encode() + b"\x00" + text.encode()
+        elif kind == b"zTXt":
+            body = key.encode() + b"\x00\x00" + zlib.compress(text.encode())
+        else:  # iTXt, uncompressed, with the two strings nobody reads
+            body = (
+                key.encode() + b"\x00\x00\x00" + b"\x00" + b"\x00"
+                + text.encode()
+            )
+        return (
+            png.SIGNATURE
+            + chunk(
+                b"IHDR",
+                (1).to_bytes(4, "big")
+                + (1).to_bytes(4, "big")
+                + bytes([8, 2, 0, 0, 0]),
+            )
+            + chunk(kind, body)
+            + chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00"))
+            + chunk(b"IEND", b"")
+        )
+
+    for kind in (b"tEXt", b"zTXt", b"iTXt"):
+        data = picture(kind, "workflow", workflow)
+        found = png.workflow_json(data)
+        check(
+            "the workflow comes out of a %s chunk" % kind.decode(),
+            found is not None and _json.loads(found)["nodes"][0]["type"]
+            == "KSampler",
+        )
+
+    # The API form is written under its own key, and is worth as much.
+    api = _json.dumps({"3": {"class_type": "KSampler", "inputs": {}}})
+    check(
+        "and out of a `prompt` chunk, which is the API form",
+        png.workflow_json(picture(b"tEXt", "prompt", api)) is not None,
+    )
+
+    check(
+        "a picture with no workflow in it says nothing",
+        png.workflow_json(picture(b"tEXt", "Software", "GIMP")) is None,
+    )
+
+    # The head is all the host sends when it asks; the key is written before
+    # the value, so it is there even when the value is cut off.
+    data = picture(b"tEXt", "workflow", workflow)
+    check(
+        "and a picture says from its first bytes that it carries one",
+        png.carries_a_graph(data[:96]),
+    )
+    check(
+        "which a picture without one does not",
+        not png.carries_a_graph(picture(b"tEXt", "Software", "GIMP")[:96]),
+    )
+
+    # **But it is never claimed on F3.** A picture is a picture; the graph is
+    # one Shift+F3 further on, which is where the plan put it — so the probe
+    # the host asks says no, even for an image that plainly carries one.
+    check(
+        "a picture is never claimed, workflow or no workflow",
+        not claim.looks_like_a_graph(data),
+    )
 
 
 def real_files() -> None:
@@ -463,6 +553,7 @@ def main() -> None:
 
     claims()
     probes()
+    pictures()
     n8n_shape()
     nodered_shape()
     api_shape()

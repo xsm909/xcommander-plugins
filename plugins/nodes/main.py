@@ -30,6 +30,12 @@ class the table has never heard of gets numbered values rather than guessed
 labels, which is the honest answer for a graph from some other editor built on
 it.
 
+**And the graph inside a picture.** Most ComfyUI workflows never exist as a
+`.json` at all: the editor writes the whole document into the PNG it just
+generated, and that image is what people keep and send each other. F3 on it
+opens the picture — that is what the file is — and Shift+F3 comes here, which
+reads the workflow out of the image's text chunks. See `png.py`.
+
 **How it wins the `.json` files that are its own, and only those.** Every one of
 these formats is a `.json`, and `.json` belongs to the text viewer — a reader
 that took the extension outright would open `package.json` as an empty canvas.
@@ -53,6 +59,9 @@ import comfyui  # noqa: E402
 import n8n  # noqa: E402
 import nodered  # noqa: E402
 import parse  # noqa: E402
+import png  # noqa: E402
+
+from claim import READERS, looks_like_a_graph  # noqa: E402
 
 plugin = Plugin("org.xcommander.nodes", "Node graphs")
 
@@ -70,6 +79,11 @@ def _load(url: str):
 
     Read through the host, so a workflow inside an archive or on a transport
     another plugin provides opens exactly like one on the disk.
+
+    **A picture is read too.** Most ComfyUI graphs never exist as a `.json`:
+    the editor writes the workflow into the PNG it generated, and that image is
+    what people keep and send each other. F3 still opens the picture — it is a
+    picture — and Shift+F3 comes here, which is the one keypress this costs.
     """
     try:
         raw = plugin.read_file(url, max_bytes=MAX_BYTES)
@@ -77,6 +91,21 @@ def _load(url: str):
         return None, error("The file could not be read: %s" % failure)
     if not raw:
         return None, error("The file is empty.")
+
+    if png.is_png(raw):
+        inside = png.workflow_json(raw)
+        if inside is None:
+            return None, error(
+                "This picture carries no workflow. ComfyUI writes one into "
+                "every image it generates; an image from anywhere else has "
+                "nothing in it to draw."
+            )
+        try:
+            return parse.first_document(inside), None
+        except Exception as failure:  # noqa: BLE001
+            return None, error(
+                "The workflow inside this picture is not JSON: %s" % failure
+            )
 
     # Decoded the way every reader in this application decodes text: UTF-8, a
     # BOM tolerated, and a damaged byte does not stop the parse.
@@ -92,45 +121,10 @@ def _load(url: str):
         return None, error("This is not JSON: %s" % failure)
 
 
-#: The readers, in the order they are asked. Exactly one may claim a file —
-#: `selftest.claims` holds that, and a new reader adds a row to it.
-READERS = (comfyui, n8n, nodered, comfyapi)
-
-
-def looks_like_a_graph(head: bytes) -> bool:
-    """Whether the file whose first pages these are is a graph — the question
-    the host asks before it decides which viewer opens a `.json`.
-
-    Answering it is what puts a workflow on **F3** instead of one Shift+F3
-    further on, and what keeps `package.json` out of the canvas.
-
-    Two ways of answering, in order. A small file arrives whole, and then the
-    honest answer is the same one opening it would give — the readers' own
-    `looks_like`, over a real document. A large one arrives cut, usually inside
-    a string, and then each reader is asked about the *text* instead: the keys
-    its editor writes near the front. **A wrong yes is worse than a missed
-    one** — it takes a file away from the viewer that should have had it — so
-    both halves are written to say no when they are not sure.
-    """
-    try:
-        text = head.decode("utf-8-sig", errors="replace")
-    except Exception:  # noqa: BLE001
-        return False
-
-    try:
-        document = parse.first_document(text)
-    except Exception:  # noqa: BLE001
-        document = None
-    if document is not None:
-        return any(reader.looks_like(document) for reader in READERS)
-
-    return any(reader.signature(text) for reader in READERS)
-
-
 @plugin.viewer(
     "nodes.graph",
     "Node graph",
-    extensions=["json"],
+    extensions=["json", "png"],
     priority=5,
     probe=looks_like_a_graph,
 )
