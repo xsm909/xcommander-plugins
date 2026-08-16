@@ -47,5 +47,9 @@
   ],
   "sticky": [
     "meta"
+  ],
+  "blocks": "none",
+  "outlineRoles": [
+    "meta"
   ]
 }

@@ -145,5 +145,13 @@
   ],
   "sticky": [
     "comment"
+  ],
+  "blocks": "braces",
+  "declares": [
+    "class",
+    "struct",
+    "namespace",
+    "enum",
+    "union"
   ]
 }

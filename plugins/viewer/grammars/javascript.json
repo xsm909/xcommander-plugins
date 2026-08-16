@@ -113,5 +113,13 @@
     "NaN",
     "Infinity"
   ],
-  "linePatterns": []
+  "linePatterns": [],
+  "blocks": "braces",
+  "declares": [
+    "class",
+    "interface",
+    "enum",
+    "namespace",
+    "module"
+  ]
 }

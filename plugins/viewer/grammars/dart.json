@@ -145,5 +145,12 @@
     "false",
     "null"
   ],
-  "linePatterns": []
+  "linePatterns": [],
+  "blocks": "braces",
+  "declares": [
+    "class",
+    "enum",
+    "mixin",
+    "extension"
+  ]
 }

@@ -126,5 +126,10 @@
     "NotImplemented",
     "Ellipsis"
   ],
-  "linePatterns": []
+  "linePatterns": [],
+  "blocks": "indent",
+  "declares": [
+    "class",
+    "def"
+  ]
 }

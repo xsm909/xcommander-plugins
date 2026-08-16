@@ -94,5 +94,14 @@
     "$false",
     "$null"
   ],
-  "linePatterns": []
+  "linePatterns": [],
+  "blocks": "braces",
+  "declares": [
+    "function",
+    "filter",
+    "workflow",
+    "class",
+    "enum"
+  ],
+  "statementsEndAtLine": true
 }

@@ -137,7 +137,7 @@
     "pythonMin": "3.12",
     "category": "Viewers",
     "icon": "view",
-    "updated": "2026-08-16T00:38:37+02:00"
+    "updated": "2026-08-16T00:46:36+02:00"
   },
   {
     "folder": "smb",
@@ -179,7 +179,7 @@
     "folder": "viewer",
     "id": "org.xcommander.builtin.viewer",
     "name": "Files as text",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "description": "One viewer for the files that are text: plain, coloured by language, formatted JSON, Markdown, delimited tables, numbered lines, and the hex dump nothing else claims. Shift+F3 chooses between the readings.",
     "runtime": "declarative",
     "apiVersion": 1,
