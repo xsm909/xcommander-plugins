@@ -111,5 +111,20 @@
     "false",
     "default"
   ],
-  "linePatterns": []
+  "linePatterns": [],
+  "blocks": "none",
+  "outline": [
+    {
+      "match": "create\\s+(?:or\\s+replace\\s+)?(?:temp(?:orary)?\\s+)?(?:table|materialized\\s+view|view)\\s+(?:if\\s+not\\s+exists\\s+)?([\\w.\"\\[\\]`]+)",
+      "kind": "type"
+    },
+    {
+      "match": "create\\s+(?:or\\s+replace\\s+)?(?:function|procedure|trigger)\\s+([\\w.\"\\[\\]`]+)",
+      "kind": "function"
+    },
+    {
+      "match": "create\\s+(?:unique\\s+)?index\\s+(?:if\\s+not\\s+exists\\s+)?([\\w.\"\\[\\]`]+)",
+      "kind": "section"
+    }
+  ]
 }

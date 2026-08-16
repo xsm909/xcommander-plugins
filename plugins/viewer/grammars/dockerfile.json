@@ -47,5 +47,12 @@
     "true",
     "false"
   ],
-  "linePatterns": []
+  "linePatterns": [],
+  "blocks": "none",
+  "outline": [
+    {
+      "match": "from\\s+(\\S+(?:\\s+as\\s+\\S+)?)",
+      "kind": "section"
+    }
+  ]
 }
