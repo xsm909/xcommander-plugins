@@ -44,6 +44,7 @@ import animation  # noqa: E402
 import fbxfile  # noqa: E402
 import geometry  # noqa: E402
 import gltffile  # noqa: E402
+import gltfanim  # noqa: E402
 import gltfscene  # noqa: E402
 import objfile  # noqa: E402
 from scene import Scene, summarise  # noqa: E402
@@ -127,11 +128,11 @@ class Model:
         return summarise(self.scene)
 
     def clips(self, parts: list) -> list:
-        """What moves. OBJ has nothing that moves at all; glTF's animation is
-        not read yet, and says so by being empty rather than by pretending the
-        model is still."""
-        if self.kind in ("gltf", "obj"):
+        """What moves. OBJ has nothing that can."""
+        if self.kind == "obj":
             return []
+        if self.kind == "gltf":
+            return gltfanim.clips(self.document, self.held, parts)
         return _skin(self.scene, parts, geometry._axis_fix(self.scene))["clips"]
 
 
@@ -358,6 +359,7 @@ def mesh3d(meshes: list, up_axis: str, unit_scale: float, note: dict,
                 "uvs": _b64_floats(mesh["uvs"]) if mesh.get("image", -1) >= 0
                        and mesh.get("uvs") else "",
                 "joints": len(mesh.get("clusters") or [])
+                          or mesh.get("joints")
                           or (1 if mesh.get("rigid") else 0),
                 "jointIndices": base64.b64encode(
                     struct.pack("<%dH" % len(mesh.get("jointIndices") or []),

@@ -58,6 +58,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import animation
 import fbxfile
 import geometry
+import gltfanim
+import gltffile
+import gltfscene
 from scene import Scene, summarise
 
 DECLARED = re.compile(r"^\s*(\w+):\s*\*(\d+)\s*\{")
@@ -135,6 +138,99 @@ def check_pictures() -> list:
             problems.append("%s got %s" % (what, picture))
 
     return problems
+
+
+def check_gltf() -> list:
+    """A glTF skin at rest must do nothing at all, whatever the file is scaled by.
+
+    The same invariant the FBX side is held to, and it is here because of what
+    happened without it. A real character's vertices spanned ±95 and posed into
+    ±1: the file scales its whole rig at the root, its inverse bind matrices
+    were written before that scaling, and so the positions and the joint
+    matrices were speaking about spaces a hundred apart. The model was drawn a
+    pixel high and looked like it had vanished.
+
+    The fixture is that file in miniature — one joint, one bone, and a root that
+    scales everything by a hundredth — plus one thing the real file did not have:
+    a transform on the mesh's own node that the skeleton knows nothing about. It
+    is there so that taking the resting transform from the skin and taking it
+    from the node are different answers, and this can say which was used.
+    """
+    document = gltffile.Document({
+        "asset": {"version": "2.0"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [
+            {"name": "root", "scale": [0.01, 0.01, 0.01], "children": [1, 2]},
+            {"name": "bone", "translation": [0.0, 50.0, 0.0]},
+            # A transform of its own that the skeleton knows nothing about,
+            # so that taking the resting transform from the *skin* and taking
+            # it from the node are two different answers and the check can tell
+            # which one was used.
+            {"name": "mesh", "mesh": 0, "skin": 0, "translation": [7.0, 0.0, 0.0]},
+        ],
+        # The bone stands at y=50 in the space the mesh was modelled in, so the
+        # inverse bind matrix takes it back down again.
+        "skins": [{"joints": [1], "inverseBindMatrices": 0}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 1, "JOINTS_0": 2,
+                                                   "WEIGHTS_0": 3}}]}],
+        "accessors": [
+            {"type": "MAT4", "componentType": 5126, "count": 1},
+            {"type": "VEC3", "componentType": 5126, "count": 3},
+            {"type": "VEC4", "componentType": 5123, "count": 3},
+            {"type": "VEC4", "componentType": 5126, "count": 3},
+        ],
+        "animations": [{
+            "name": "still",
+            "channels": [{"sampler": 0, "target": {"node": 1, "path": "translation"}}],
+            "samplers": [{"input": 4, "output": 5, "interpolation": "LINEAR"}],
+        }],
+    }, b"", True)
+
+    ibm = [1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, -50.0, 0, 1.0]
+    held = _Answers({
+        0: ibm,
+        1: [0.0, 50.0, 0.0, 10.0, 60.0, 0.0, -10.0, 40.0, 0.0],
+        2: [0, 0, 0, 0] * 3,
+        3: [1.0, 0.0, 0.0, 0.0] * 3,
+        4: [0.0, 1.0],
+        5: [0.0, 50.0, 0.0, 0.0, 50.0, 0.0],
+    }, document)
+
+    problems = []
+    parts, _note = gltfscene.meshes(document, held)
+    if not parts:
+        problems.append("the fixture yielded no mesh")
+        return problems
+
+    mesh = parts[0]
+    top = max(mesh["positions"][1::3])
+    if abs(top - 0.6) > 1e-6:
+        problems.append("the rig's own scaling was not baked in: top at %r" % top)
+
+    made = gltfanim.clips(document, held, parts)
+    if not made:
+        problems.append("the fixture's animation was not baked")
+        return problems
+    first = made[0]["tracks"][0][:16]
+    off = max(abs(a - b) for a, b in zip(first, geometry.IDENTITY))
+    if off > 1e-6:
+        problems.append("at rest a joint should do nothing; it is out by %.3g" % off)
+    return problems
+
+
+class _Answers(gltffile.Bytes):
+    """A `Bytes` that hands back numbers instead of reading a buffer."""
+
+    def __init__(self, answers: dict, document):
+        super().__init__(document, None)
+        self._answers = answers
+
+    def read(self, index):
+        return list(self._answers.get(index) or [])
+
+    def image(self, index):
+        return None
 
 
 def check_bending() -> list:
@@ -439,6 +535,9 @@ def main(folder: str) -> int:
         failures += 1
     for problem in check_bending():
         print("BAD   %-46s %s" % ("(how a curve bends)", problem))
+        failures += 1
+    for problem in check_gltf():
+        print("BAD   %-46s %s" % ("(a glTF skin at rest)", problem))
         failures += 1
     moved: list = []
     slowest = (0.0, "")

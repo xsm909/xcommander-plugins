@@ -113,6 +113,29 @@ def placements(document: Document) -> Dict[int, List[float]]:
     return out
 
 
+def bind_of(document: Document, held: Bytes, skin: Optional[int],
+            where: Dict[int, List[float]]) -> Optional[List[float]]:
+    """Where a skin leaves its mesh when nothing is animating it.
+
+    `IBM · G` for any joint, the two being inverses of one another at bind time
+    but for whatever the file has been scaled or moved by since — which is the
+    whole of what this is for. The first joint that answers is enough: a rig
+    whose joints disagree about it is a rig with a broken bind pose, and this is
+    a preview.
+    """
+    entry = document.entry("skins", skin)
+    if entry is None:
+        return None
+    joints = [int(j) for j in (entry.get("joints") or [])]
+    flat = held.read(entry.get("inverseBindMatrices"))
+    for slot, joint in enumerate(joints):
+        if (slot + 1) * 16 > len(flat):
+            break
+        ibm = list(flat[slot * 16:(slot + 1) * 16])
+        return multiply(ibm, where.get(joint, IDENTITY))
+    return None
+
+
 def _colour(material: Optional[dict]) -> str:
     if not material:
         return ""
@@ -199,13 +222,26 @@ def meshes(document: Document, held: Bytes,
         if mesh is None:
             continue
 
-        # **A skinned mesh is not placed by its own node**, which the
-        # specification says in as many words: its vertices are in the
-        # skeleton's space and the joints are what put them anywhere. Nothing
-        # visible turns on it yet — the real model this was checked against has
-        # identity on all seven of its mesh nodes — but the moment skinning is
-        # read, applying both would transform everything twice.
-        placement = IDENTITY if node.get("skin") is not None else where[index]
+        # What gets baked into the vertices, and it is not always the node's
+        # own place.
+        #
+        # The specification says a skinned mesh is not placed by its node — its
+        # vertices are in the skeleton's space, and the joints put them
+        # somewhere. But the host is handed positions *and* a matrix per joint,
+        # and both have to speak about the same space or the model is drawn at
+        # one scale and posed at another. It was: a character whose vertices
+        # spanned ±95 posed into ±1, so the framing, which is worked out from
+        # the vertices, zoomed out a hundredfold and drew him a pixel high.
+        #
+        # So the rig's own resting transform is baked in and taken back out of
+        # every joint matrix, exactly as the FBX side does with a mesh's
+        # placement. `IBM · G` at rest is that transform by construction, and
+        # taking it from the skin rather than from the node means it agrees with
+        # the matrices whatever the node happens to say. On the model this was
+        # measured on the two are the same 0.0107 either way.
+        placement = where[index]
+        if node.get("skin") is not None:
+            placement = bind_of(document, held, node.get("skin"), where) or placement
         name = str(node.get("name") or mesh.get("name") or "") or "(unnamed)"
         parts = mesh.get("primitives")
         if not isinstance(parts, list):
@@ -236,6 +272,7 @@ def meshes(document: Document, held: Bytes,
                 triangles = triangles[:max(0, max_triangles - total)]
                 dropped += 1
 
+            skin = node.get("skin")
             builder = MeshBuilder()
             for triangle in triangles:
                 fan = []
@@ -280,7 +317,7 @@ def meshes(document: Document, held: Bytes,
             if picture:
                 geometry._lay(builder.uvs, picture)
             total += len(builder.indices) // 3
-            out.append({
+            entry = {
                 "name": name if len(parts) < 2 else "%s · %d" % (name, slot),
                 "positions": builder.positions,
                 "normals": builder.normals,
@@ -293,7 +330,20 @@ def meshes(document: Document, held: Bytes,
                 "placement_no_fix": placement,
                 "color": _colour(material),
                 "picture": picture,
-            })
+            }
+            # What pulls on it, if anything does. Kept here because this is the
+            # only place that knows where each of our vertices came from.
+            if skin is not None:
+                import gltfanim  # here, because it reads this module in turn
+                bones, pulls = gltfanim.influences(
+                    held, primitive, builder.sources, len(builder.positions) // 3)
+                if bones:
+                    entry["skin"] = int(skin)
+                    entry["jointIndices"] = bones
+                    entry["jointWeights"] = pulls
+                    joints = document.entry("skins", int(skin)) or {}
+                    entry["joints"] = len(joints.get("joints") or [])
+            out.append(entry)
 
     return out, {"droppedMeshes": dropped, "triangles": total,
                  "held": max(total, held_triangles)}
