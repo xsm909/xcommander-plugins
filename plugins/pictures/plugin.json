@@ -1,8 +1,8 @@
 {
   "id": "org.xcommander.pictures",
   "name": "Pictures",
-  "version": "0.3.0",
-  "description": "The raster formats the machine's own decoder will not open. GIMP's .xcf with its layers composited, Photoshop's .psd and .psb through the flattened copy inside them, TIFF in strips or tiles with LZW, PackBits or deflate, and Targa — the same picture on every machine, whatever the platform's own decoder happens to know.",
+  "version": "0.4.0",
+  "description": "The raster formats the machine's own decoder will not open, and the ones it will not open here. GIMP's .xcf with its layers, masks and blend modes composited, Photoshop's .psd and .psb through the flattened copy inside them, TIFF in strips or tiles with LZW, PackBits or deflate, and Targa. What this reader cannot read is handed to the machine's own decoder rather than refused.",
   "category": "Viewers",
   "author": "xcommander",
   "homepage": "https://github.com/xsm909/xcommander-plugins",

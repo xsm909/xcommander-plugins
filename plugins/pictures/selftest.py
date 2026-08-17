@@ -37,12 +37,16 @@ import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import base64  # noqa: E402
 import psd  # noqa: E402
 import tga  # noqa: E402
 import tiff  # noqa: E402
 import xcf  # noqa: E402
 
 FAILURES = []
+
+#: Where the matched TIFFs live, for the checks that need a real file.
+FIXTURES = "/Users/Shared/temp/pictures"
 
 
 def check(name: str, got, want):
@@ -93,6 +97,36 @@ def check_compositing():
     layer["pixels"] = bytearray([10, 20, 30, 255] * 4)
     xcf._over(canvas, 2, 2, layer)
     check("opaque replaces", bytes(canvas[:4]), bytes([10, 20, 30, 255]))
+
+
+def check_blending():
+    """A blend mode, against arithmetic anybody can do.
+
+    Multiply of a half-grey on a half-grey is a quarter-grey — 64 — and the
+    same pair screened is 192. A reader that ignored the mode would answer 128
+    for both, which is a picture that looks perfectly plausible.
+    """
+    def laid(mode, under, over, alpha=255):
+        canvas = bytearray([under, under, under, 255] * 4)
+        xcf._over(canvas, 2, 2, {
+            "name": "on", "width": 2, "height": 2, "x": 0, "y": 0, "mode": mode,
+            "pixels": bytearray([over, over, over, alpha] * 4),
+        })
+        return canvas[0]
+
+    check("multiply", laid(30, 128, 128), 64)
+    check("screen", laid(31, 128, 128), 192)
+    check("difference", laid(32, 200, 50), 150)
+    check("darken only takes the lower", laid(35, 200, 50), 50)
+    check("lighten only takes the higher", laid(36, 200, 50), 200)
+    # And the old numbering means the same thing as the new one.
+    check("the legacy number agrees", laid(3, 128, 128), laid(30, 128, 128))
+    # Half-transparent, the blend is mixed back with what was under it: the
+    # multiply answer 64 halfway to 128 is 96 in real numbers, and 95 once the
+    # division has thrown away its remainder — which is a rounding error and
+    # not a mistake, so the check allows either.
+    check("and alpha still applies", 95 <= laid(30, 128, 128, alpha=128) <= 96,
+          True)
 
 
 def check_offsets():
@@ -228,6 +262,44 @@ READERS = {"xcf": xcf.read, "psd": psd.read, "psb": psd.read, "tga": tga.read,
            "tif": tiff.read, "tiff": tiff.read}
 
 
+def check_handover():
+    """A file this reader refuses is handed to the machine's own decoder.
+
+    What each engine reads differs by machine and differs from what this reads
+    — measured on both — so refusing outright throws away a picture somebody
+    could have seen. GIMP's format is the exception: nothing anywhere reads it,
+    so there is nobody to hand it to.
+    """
+    try:
+        import main                                     # noqa: PLC0415
+    except ImportError:
+        print("  (the app's python-sdk is not on the path; skipped)")
+        return
+
+    # A TIFF that says it is JPEG-compressed inside, which this does not read.
+    path = os.path.join(FIXTURES, "stripped.tiff")
+    if not os.path.exists(path):
+        print("  (no stripped.tiff under %s; skipped)" % FIXTURES)
+        return
+    body = bytearray(open(path, "rb").read())
+    order = "<" if body[:2] == b"II" else ">"
+    count, = struct.unpack(order + "H", body[8:10])
+    for i in range(count):
+        at = 10 + i * 12
+        tag, = struct.unpack(order + "H", body[at:at + 2])
+        if tag == 259:                                   # compression
+            struct.pack_into(order + "H", body, at + 8, 7)
+    answer = main.answer("tiff", bytes(body))
+    check("handed over rather than refused", answer.get("kind"), "image")
+    check("and it is the file itself", answer.get("data"),
+          base64.b64encode(bytes(body)).decode("ascii"))
+    check("and it says why", "own decoder" in (answer.get("detail") or ""), True)
+
+    # Nothing reads XCF, so there is nobody to hand it to.
+    answer = main.answer("xcf", b"gimp xcf v019" + b"\0" * 40)
+    check("a GIMP file is refused in words", answer.get("kind"), "error")
+
+
 def check_files(folder: str):
     found = 0
     for root, _, names in os.walk(folder):
@@ -268,9 +340,11 @@ def main() -> int:
     print("packbits");              check_packbits()
     print("targa corners");         check_targa_corners()
     print("tiff lzw");              check_lzw()
+    print("handing over");          check_handover()
     print("tiles are byte planes"); check_planes()
     print("zlib tiles");            check_zlib_tiles()
     print("compositing");           check_compositing()
+    print("blending");              check_blending()
     print("offsets");               check_offsets()
     for folder in sys.argv[1:]:
         print("the same TIFF three ways, under %s" % folder)

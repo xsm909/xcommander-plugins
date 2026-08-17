@@ -67,30 +67,43 @@ READERS = {
 }
 
 
-@plugin.viewer(
-    "pictures.raster",
-    "Picture",
-    extensions=sorted(READERS),
-    priority=20,
-)
-def picture(url: str) -> dict:
-    started = time.time()
-    extension = url.rsplit(".", 1)[-1].lower()
+#: Formats the machine's own decoder may well read where this one cannot.
+#:
+#: Measured 2026-08-17: macOS reads Photoshop, Targa and TIFF through the
+#: system; Windows reads TIFF (and HEIC, with the extension installed) through
+#: WIC. So a file this reader refuses — a fax-compressed TIFF, a JPEG inside a
+#: TIFF, a Photoshop file saved without its flattened copy — is worth handing
+#: over rather than refusing outright. GIMP's own format is not in the list
+#: because nothing anywhere reads it.
+HAND_OVER = {"tif", "tiff", "psd", "psb", "tga", "targa", "tpic"}
+
+#: How much is worth sending on the chance that the engine can read it.
+MAX_HANDOVER = 64 << 20
+
+
+def answer(extension: str, raw: bytes) -> dict:
+    """The content for one file, given its bytes. Separate from the viewer so
+    that it can be checked without a host on the other end of a pipe."""
     reader = READERS.get(extension)
     if reader is None:
         return error("This viewer does not read a .%s." % extension)
     read, refusal, what = reader
-
-    try:
-        raw = plugin.read_file(url, max_bytes=MAX_BYTES)
-    except Exception as failure:  # noqa: BLE001
-        return error("The file could not be read: %s" % failure)
     if not raw:
         return error("The file is empty.")
 
     try:
         found = read(raw)
     except refusal as failure:
+        # **Ask the machine before giving up.** What each engine reads is not
+        # the same on every machine and not the same as what this reads, and a
+        # picture shown by somebody else's decoder is still the picture. If it
+        # cannot either, the canvas says so in one sentence.
+        if extension in HAND_OVER and len(raw) <= MAX_HANDOVER:
+            content = image(raw, mime_type=_mime(extension))
+            content["detail"] = (
+                "%s — shown by this machine's own decoder instead." % failure
+            )
+            return content
         return error(str(failure))
     except Exception as failure:  # noqa: BLE001
         return error("This %s file could not be read: %s" % (what, failure))
@@ -108,17 +121,35 @@ def picture(url: str) -> dict:
     # neither is telling the reader they have seen the file.
     notes = list(found["notes"])
     content["detail"] = " ".join(notes) if notes else None
-    plugin.log(
-        "%s %dx%d, %.2fs, %d KB"
-        % (
-            extension,
-            found["width"],
-            found["height"],
-            time.time() - started,
-            len(body) >> 10,
-        )
-    )
     return content
 
 
-plugin.run()
+def _mime(extension: str) -> str:
+    return {
+        "tif": "image/tiff", "tiff": "image/tiff",
+        "psd": "image/vnd.adobe.photoshop",
+        "psb": "image/vnd.adobe.photoshop",
+    }.get(extension, "application/octet-stream")
+
+
+@plugin.viewer(
+    "pictures.raster",
+    "Picture",
+    extensions=sorted(READERS),
+    priority=20,
+)
+def picture(url: str) -> dict:
+    started = time.time()
+    extension = url.rsplit(".", 1)[-1].lower()
+    try:
+        raw = plugin.read_file(url, max_bytes=MAX_BYTES)
+    except Exception as failure:  # noqa: BLE001
+        return error("The file could not be read: %s" % failure)
+
+    content = answer(extension, raw)
+    plugin.log("%s %s, %.2fs" % (extension, content.get("kind"), time.time() - started))
+    return content
+
+
+if __name__ == "__main__":
+    plugin.run()

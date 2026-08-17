@@ -26,10 +26,12 @@ all the greens, then all the blues, then all the alphas. That last detail is the
 one that catches people out; a tile is not a run of pixels.
 
 **What this reader does and does not do.** It composites the visible layers with
-their offsets, opacity and masks, in the ordinary "normal" way, and hands back
-one RGBA picture. It does **not** know the twenty-odd blend modes, and it says
-so out loud rather than showing you a picture that is wrong in a way you cannot
-see — the same rule the 3D viewer keeps about a model it had to cut short.
+their offsets, opacity, masks and blend modes, and hands back one RGBA picture.
+The modes it knows are the ones that work a channel at a time — multiply,
+screen, overlay and the rest, in both GIMP's old numbering and its new one. The
+ones it does not are the ones that mix channels together — hue, saturation,
+colour, luminance — and a layer using one of those is laid on normally and
+**said so out loud**, rather than shown wrong in a way nobody can see.
 """
 
 from __future__ import annotations
@@ -70,9 +72,84 @@ INTEGER_PRECISIONS = {100, 150, 200, 250, 300, 350}
 #: indexed+alpha.
 LAYER_CHANNELS = {0: 3, 1: 4, 2: 1, 3: 2, 4: 1, 5: 2}
 
-#: The one blend mode this composites properly. GIMP 3 writes 28 for "normal";
+#: The one blend mode that needs no arithmetic. GIMP 3 writes 28 for "normal";
 #: files older than 2.10 write 0 for the same thing.
 NORMAL_MODES = {0, 28}
+
+
+def _multiply(a, b):
+    return a * b // 255
+
+
+def _screen(a, b):
+    return 255 - (255 - a) * (255 - b) // 255
+
+
+def _overlay(a, b):
+    return _multiply(a, 2 * b) if b < 128 else _screen(a, 2 * b - 255)
+
+
+def _soft_light(a, b):
+    # The classic formula, which is what GIMP's own "soft light" is.
+    return (_screen(a, b) * a + _multiply(a, b) * (255 - a)) // 255
+
+
+def _dodge(a, b):
+    return 255 if b >= 255 else min(255, a * 255 // (255 - b))
+
+
+def _burn(a, b):
+    return 0 if b <= 0 else 255 - min(255, (255 - a) * 255 // b)
+
+
+#: How each blend mode combines what is under it with what is on it, by GIMP's
+#: own numbers — the legacy ones from before 2.10 and the modern ones beside
+#: them, which differ in gamma and clipping rather than in what they mean.
+#:
+#: The ones that are *not* here are the ones that are not a function of one
+#: channel at a time — hue, saturation, colour, luminance — and a layer using
+#: one of those is laid on normally and said so.
+BLENDS = {
+    3: _multiply, 30: _multiply,
+    4: _screen, 31: _screen,
+    5: _overlay, 23: _overlay,
+    6: lambda a, b: abs(a - b), 32: lambda a, b: abs(a - b),
+    7: lambda a, b: min(255, a + b), 33: lambda a, b: min(255, a + b),
+    8: lambda a, b: max(0, a - b), 34: lambda a, b: max(0, a - b),
+    9: min, 35: min,
+    10: max, 36: max,
+    15: lambda a, b: min(255, a * 255 // max(1, b)),
+    41: lambda a, b: min(255, a * 255 // max(1, b)),
+    16: _dodge, 42: _dodge,
+    17: _burn, 43: _burn,
+    18: lambda a, b: _overlay(b, a), 44: lambda a, b: _overlay(b, a),
+    19: _soft_light, 45: _soft_light,
+    20: lambda a, b: max(0, min(255, a - b + 128)),
+    46: lambda a, b: max(0, min(255, a - b + 128)),
+    21: lambda a, b: max(0, min(255, a + b - 128)),
+    47: lambda a, b: max(0, min(255, a + b - 128)),
+    52: lambda a, b: a + b - 2 * a * b // 255,
+    53: lambda a, b: max(0, a + b - 255),
+}
+
+#: Each blend as a table of every pair of values, built once and looked up per
+#: pixel. Sixty-five thousand entries is nothing to build and turns the inner
+#: loop from arithmetic into an index — which matters, because this loop runs
+#: once per pixel of a layer in Python.
+_TABLES = {}
+
+
+def _table(mode):
+    found = _TABLES.get(mode)
+    if found is None:
+        blend = BLENDS[mode]
+        found = bytes(
+            max(0, min(255, blend(under, over)))
+            for under in range(256) for over in range(256)
+        )
+        _TABLES[mode] = found
+    return found
+
 
 #: Bigger than this and the answer would be hundreds of megabytes over a pipe
 #: for a preview nobody can see all of at once.
@@ -131,7 +208,7 @@ def read(data: bytes) -> dict:
         layer = _layer(data, pointer_at, version, compression, precision, palette)
         if layer is None:
             continue
-        if layer["mode"] not in NORMAL_MODES:
+        if layer["mode"] not in NORMAL_MODES and layer["mode"] not in BLENDS:
             unknown_modes += 1
         _over(canvas, width, height, layer)
         drawn += 1
@@ -427,18 +504,19 @@ def _as_rgba(planes, pixels, kind, palette):
 
 
 def _over(canvas, width, height, layer):
-    """One layer laid on what is already there, in the ordinary way.
+    """One layer laid on what is already there.
 
-    Two paths, and the reason is speed rather than taste: a layer that is opaque
-    everywhere is rows of bytes and is copied as rows, which is the difference
-    between a tenth of a second and several. Only where alpha is really in play
-    does this go pixel by pixel.
+    Three paths, and the reason is speed rather than taste: a layer that is
+    opaque everywhere and laid on normally is rows of bytes and is copied as
+    rows, which is the difference between a tenth of a second and several. Only
+    where alpha or a blend mode is really in play does this go pixel by pixel.
     """
     pixels = layer["pixels"]
     lw, lh = layer["width"], layer["height"]
     x0, y0 = layer["x"], layer["y"]
     alpha = pixels[3::4]
-    opaque = alpha.count(255) == len(alpha)
+    blend = _table(layer["mode"]) if layer["mode"] in BLENDS else None
+    opaque = alpha.count(255) == len(alpha) and blend is None
 
     for row in range(lh):
         y = y0 + row
@@ -460,6 +538,16 @@ def _over(canvas, width, height, layer):
             if a == 0:
                 continue
             t = target + i * 4
+            if blend is not None:
+                # What the mode makes of the two, and *then* the ordinary
+                # alpha composite of that over what was there — which is the
+                # order every one of these modes is defined in.
+                for c in range(3):
+                    mixed = blend[(canvas[t + c] << 8) | pixels[s + c]]
+                    canvas[t + c] = (mixed * a + canvas[t + c] * (255 - a)) // 255
+                was = canvas[t + 3]
+                canvas[t + 3] = a + was * (255 - a) // 255
+                continue
             if a == 255:
                 canvas[t:t + 4] = pixels[s:s + 4]
                 continue
