@@ -248,6 +248,52 @@ def influences(held: Bytes, primitive: dict, sources: List[int],
     return out_joints, out_weights
 
 
+def skeleton(document: Document, held: Bytes, skin: Optional[int],
+             placement: List[float]) -> Tuple[List[float], List[int]]:
+    """Where each bone rests, and which bone it hangs from.
+
+    For drawing the skeleton over the model. The baked matrices cannot say it —
+    they carry a bone's change since the bind pose, not its place — so the
+    resting place goes with them, in the same space as the vertices.
+
+    glTF gives the inverse of what is wanted: `IBM` takes the mesh's space into
+    the bone's, so its inverse puts the bone's origin back in the mesh's, and
+    then whatever was baked into the vertices is applied to match.
+    """
+    entry = document.entry("skins", skin)
+    if entry is None:
+        return [], []
+    joints = [int(j) for j in (entry.get("joints") or [])]
+    flat = held.read(entry.get("inverseBindMatrices"))
+    at = {joint: slot for slot, joint in enumerate(joints)}
+
+    above: Dict[int, int] = {}
+    for index, node in enumerate(document.listed("nodes")):
+        if isinstance(node, dict):
+            for child in node.get("children") or []:
+                above.setdefault(int(child), index)
+
+    where: List[float] = []
+    parents: List[int] = []
+    for slot, joint in enumerate(joints):
+        ibm = (list(flat[slot * 16:(slot + 1) * 16])
+               if (slot + 1) * 16 <= len(flat) else list(IDENTITY))
+        rest = multiply(invert(ibm), placement or IDENTITY)
+        where.extend(geometry.transform_point(rest, 0.0, 0.0, 0.0))
+
+        parent = -1
+        walk = above.get(joint)
+        seen = set()
+        while walk is not None and walk not in seen:
+            seen.add(walk)
+            if walk in at:
+                parent = at[walk]
+                break
+            walk = above.get(walk)
+        parents.append(parent)
+    return where, parents
+
+
 def clips(document: Document, held: Bytes, parts: List[dict]) -> List[dict]:
     """Every animation in the file, baked per mesh, ready for the host."""
     animations = document.listed("animations")

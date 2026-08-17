@@ -343,6 +343,8 @@ def meshes(document: Document, held: Bytes,
                     entry["jointWeights"] = pulls
                     joints = document.entry("skins", int(skin)) or {}
                     entry["joints"] = len(joints.get("joints") or [])
+                    entry["bones"], entry["boneParents"] = gltfanim.skeleton(
+                        document, held, int(skin), placement)
             out.append(entry)
 
     return out, {"droppedMeshes": dropped, "triangles": total,

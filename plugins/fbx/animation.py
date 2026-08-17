@@ -404,6 +404,46 @@ def influences(clusters: List[Cluster], source_count: int) -> List[List[Tuple[in
     return table
 
 
+def skeleton(scene: Scene, clusters: List["Cluster"],
+             fix: List[float]) -> Tuple[List[float], List[int]]:
+    """Where each bone rests, and which bone it hangs from.
+
+    Wanted for drawing the skeleton over the model, and it cannot be got from
+    the baked matrices: those carry a bone's *change* since the bind pose, not
+    where it is. So the resting place goes with them — three numbers a bone —
+    in the same space as the vertices, which is what the host will pose them by.
+
+    A bone's parent is the nearest node above it that is also a bone of this
+    skin. Files hang joints off helpers and off the mesh itself, and a chain
+    drawn to a node nobody skins is a line into nowhere.
+    """
+    at = {cluster.bone_id: slot for slot, cluster in enumerate(clusters)}
+    where: List[float] = []
+    parents: List[int] = []
+
+    for cluster in clusters:
+        # `TransformLink` is the bone's own global transform at bind time, so
+        # its translation is where the bone was when the mesh was bound.
+        rest = multiply(cluster.link, fix)
+        where.extend(geometry.transform_point(rest, 0.0, 0.0, 0.0))
+
+        parent = -1
+        seen = set()
+        walk = cluster.bone_id
+        while walk is not None and walk not in seen:
+            seen.add(walk)
+            above = scene.parents_of(walk, "Model")
+            if not above:
+                break
+            walk = above[0].id
+            if walk in at:
+                parent = at[walk]
+                break
+        parents.append(parent)
+
+    return where, parents
+
+
 def moves(scene: Scene, model_id: Optional[int]) -> bool:
     """Whether anything in the file animates this node or one it hangs from.
 

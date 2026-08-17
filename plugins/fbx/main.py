@@ -313,6 +313,8 @@ def _skin(scene, parts: list, fix: list) -> dict:
                     weights.append(0.0)
         mesh["jointIndices"] = indices
         mesh["jointWeights"] = weights
+        mesh["bones"], mesh["boneParents"] = animation.skeleton(
+            scene, clusters, fix)
 
     clips = []
     for stack in scene.of_kind("AnimationStack"):
@@ -378,6 +380,13 @@ def mesh3d(meshes: list, up_axis: str, unit_scale: float, note: dict,
                 # a fifth of everything sent.
                 "uvs": _b64_floats(mesh["uvs"]) if mesh.get("image", -1) >= 0
                        and mesh.get("uvs") else "",
+                # Where each bone rests, and which bone it hangs from, so the
+                # skeleton can be drawn over the model. Three numbers and one
+                # index a bone: a hundred bones is under a kilobyte.
+                "bones": _b64_floats(mesh.get("bones") or []),
+                "boneParents": base64.b64encode(struct.pack(
+                    "<%dh" % len(mesh.get("boneParents") or []),
+                    *(mesh.get("boneParents") or []))).decode("ascii"),
                 "joints": len(mesh.get("clusters") or [])
                           or mesh.get("joints")
                           or (1 if mesh.get("rigid") else 0),
