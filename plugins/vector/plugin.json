@@ -1,0 +1,29 @@
+{
+  "id": "org.xcommander.vector",
+  "name": "Vector graphics",
+  "version": "0.1.0",
+  "description": "Drawings made of shapes, drawn as shapes rather than turned into a picture — so they stay sharp however far in you go. SVG today: paths, the basic shapes, transforms, CSS in a <style> block, fills and strokes. EPS and the rest to follow.",
+  "category": "Viewers",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "view",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "viewers": [
+    {
+      "id": "vector.drawing",
+      "title": "Drawing",
+      "extensions": [
+        "svg"
+      ],
+      "priority": 20
+    }
+  ]
+}
