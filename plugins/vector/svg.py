@@ -49,6 +49,7 @@ MOVE, LINE, CUBIC, CLOSE = 0, 1, 2, 3
 INHERITED = (
     "fill", "stroke", "stroke-width", "fill-opacity", "stroke-opacity",
     "fill-rule", "stroke-linecap", "stroke-linejoin", "color",
+    "font-size", "font-family", "font-weight", "font-style", "text-anchor",
 )
 
 #: The colours SVG names. The whole list is 147 long and nobody uses most of
@@ -86,16 +87,24 @@ def read(data: bytes) -> dict:
     if _tag(root) != "svg":
         raise SvgError("This XML is not an SVG.")
 
-    rules = _stylesheet(root)
     box = _view_box(root)
-    notes: list[str] = []
-    shapes: list[dict] = []
-    gradients = _gradients(root)
+    world = _World(
+        rules=_stylesheet(root),
+        gradients=_gradients(root),
+        # Everything with an id, so `<use>` can find what it points at
+        # wherever it was declared — which is usually inside `<defs>`, where
+        # nothing is drawn from.
+        named={node.get("id"): node for node in root.iter() if node.get("id")},
+        notes=[],
+        shapes=[],
+    )
     # A viewBox may start anywhere; the host is handed a picture whose corner
     # is the origin, so the offset is taken out here and nowhere else.
     start = _initial()
     start["transform"] = (1.0, 0.0, 0.0, 1.0, -box[0], -box[1])
-    _walk(root, start, shapes, rules, gradients, notes, box)
+    _walk(root, start, world, 0)
+    notes = world.notes
+    shapes = world.shapes
 
     if len(shapes) > MAX_SHAPES:
         notes.append(
@@ -128,46 +137,193 @@ def _initial() -> dict:
     }
 
 
-def _walk(node, inherited, shapes, rules, gradients, notes, box):
+class _World:
+    """Everything the walk needs that is not the element it is standing on."""
+
+    __slots__ = ("rules", "gradients", "named", "notes", "shapes")
+
+    def __init__(self, rules, gradients, named, notes, shapes):
+        self.rules = rules
+        self.gradients = gradients
+        self.named = named
+        self.notes = notes
+        self.shapes = shapes
+
+    def say(self, note):
+        if note not in self.notes:
+            self.notes.append(note)
+
+
+#: How far a `<use>` may point at something that points at something. Files
+#: that refer to themselves exist, and without this they are a stack overflow
+#: rather than a drawing.
+MAX_DEPTH = 8
+
+#: Declared and drawn are different things: these are read for what they say
+#: and never drawn where they stand.
+DECLARATIONS = (
+    "defs", "symbol", "clipPath", "mask", "marker", "style", "title", "desc",
+    "metadata", "linearGradient", "radialGradient", "pattern", "filter",
+)
+
+
+def _walk(node, inherited, world, depth):
     for child in node:
-        tag = _tag(child)
-        if tag in ("defs", "symbol", "clipPath", "mask", "marker", "style",
-                   "title", "desc", "metadata", "linearGradient",
-                   "radialGradient", "pattern", "filter"):
-            if tag in ("clipPath", "mask") and "clipping" not in notes:
-                notes.append("Clipping and masking are ignored.")
-            continue
-        if tag == "text" or tag == "tspan":
-            if "text" not in notes:
-                notes.append("Text is not drawn.")
-            continue
+        _draw(child, inherited, world, depth)
 
-        style = dict(inherited)
-        for key, value in _style_of(child, rules).items():
-            style[key] = value
-        style["transform"] = _compose(
-            inherited["transform"], _transform(child.get("transform", ""))
+
+def _draw(child, inherited, world, depth):
+    """One element: a group to walk into, a shape to keep, or nothing."""
+    tag = _tag(child)
+    if tag in DECLARATIONS:
+        if tag in ("clipPath", "mask"):
+            world.say("Clipping and masking are ignored.")
+        return
+    style = dict(inherited)
+    for key, value in _style_of(child, world.rules).items():
+        style[key] = value
+    style["transform"] = _compose(
+        inherited["transform"], _transform(child.get("transform", ""))
+    )
+    # Opacity is not inherited as a property — it multiplies down the tree.
+    style["opacity"] = str(
+        _number(inherited.get("opacity", "1"), 1)
+        * _number(child.get("opacity", "1"), 1)
+    )
+
+    if tag in ("text", "tspan"):
+        _text(child, style, world, depth)
+        return
+    if tag in ("g", "svg", "a"):
+        _walk(child, style, world, depth)
+        return
+    if tag == "use":
+        _use(child, style, world, depth)
+        return
+
+    path = _path_of(child, tag)
+    if path is None:
+        return
+    shape = _paint(path, style, world.gradients, world.notes)
+    if shape is not None:
+        world.shapes.append(shape)
+
+
+#: What a font family in a file becomes here. A drawing may name any font on
+#: the machine that made it, and this one has the application's own two — so
+#: the choice is between the ordinary face and a typewriter face, and the
+#: drawing says that a substitution happened.
+def _family(names):
+    for name in (names or "").lower().replace('"', "").split(","):
+        name = name.strip()
+        if name in ("monospace", "courier", "courier new", "menlo", "consolas") \
+                or "mono" in name:
+            return "mono"
+        if name in ("serif", "times", "times new roman", "georgia"):
+            return "serif"
+    return "sans"
+
+
+def _text(node, style, world, depth):
+    """`<text>` and the runs inside it.
+
+    **Drawn as text, not as outlines.** Turning letters into paths would need
+    the font the file names, and a drawing is not allowed to bring one; so what
+    crosses is the words, where they sit and how big they are, and the host
+    sets them in a face it has. That is a substitution and the drawing says so
+    — a diagram whose labels are in the wrong face is still a diagram, where a
+    diagram with no labels is a puzzle.
+    """
+    world.say("Text is set in this application's own faces, not the file's.")
+    x = _number(node.get("x", 0))
+    y = _number(node.get("y", 0))
+    x += _number(node.get("dx", 0))
+    y += _number(node.get("dy", 0))
+
+    body = (node.text or "").strip()
+    if body:
+        world.shapes.append(_word(body, x, y, style, world))
+    # A `<tspan>` inside places itself, and what follows it belongs to the
+    # parent again — which is why this walks children rather than joining the
+    # text of the whole element.
+    for child in node:
+        if _tag(child) == "tspan":
+            inherited = dict(style)
+            for key, value in _style_of(child, world.rules).items():
+                inherited[key] = value
+            inherited.setdefault("x", node.get("x", "0"))
+            if child.get("x") is None:
+                child.set("x", str(x))
+            if child.get("y") is None:
+                child.set("y", str(y))
+            _text(child, inherited, world, depth + 1)
+        tail = (child.tail or "").strip()
+        if tail:
+            world.shapes.append(_word(tail, x, y, style, world))
+
+
+def _word(body, x, y, style, world):
+    """One run of text, with its paint and its place."""
+    whole = _number(style.get("opacity", "1"), 1)
+    fill = _colour(
+        style.get("fill", "#000000"),
+        _number(style.get("fill-opacity", "1"), 1) * whole,
+    )
+    if fill is None and _named_paint(style.get("fill")) is not None:
+        # A gradient on text is not something the contract can carry; the
+        # average is better than nothing at all.
+        name = _named_paint(style.get("fill"))
+        found = (world.gradients or {}).get(name)
+        fill = _average(found["stops"]) if found else "#000000ff"
+    return {
+        "text": body,
+        "at": [x, y],
+        "size": _number(style.get("font-size", "16"), 16),
+        "family": _family(style.get("font-family")),
+        "weight": int(_number(style.get("font-weight", "400"), 400)) or 400,
+        "italic": style.get("font-style", "") in ("italic", "oblique"),
+        "anchor": style.get("text-anchor", "start"),
+        "matrix": list(style["transform"]),
+        "fill": fill or "#000000ff",
+    }
+
+
+def _use(node, style, world, depth):
+    """`<use>` — the same shape drawn again somewhere else.
+
+    Icon sets lean on it heavily: one path in `<defs>` and a dozen `<use>`
+    pointing at it. A reader that skips them draws an empty file and looks like
+    it worked.
+
+    The instance takes the style it is used *in*, not the style at the
+    declaration — which is what makes one shape in `<defs>` come out in a
+    different colour at every place it is used.
+    """
+    if depth >= MAX_DEPTH:
+        world.say("A reused shape points at itself; part of the file is not drawn.")
+        return
+    href = node.get("href") or node.get("{http://www.w3.org/1999/xlink}href") or ""
+    target = world.named.get(href.lstrip("#"))
+    if target is None:
+        world.say("A reused shape points at something that is not in the file.")
+        return
+
+    # `x` and `y` on the `<use>` are a move, and they come after its own
+    # transform.
+    x, y = _number(node.get("x", 0)), _number(node.get("y", 0))
+    moved = dict(style)
+    if x or y:
+        moved["transform"] = _compose(
+            style["transform"], (1.0, 0.0, 0.0, 1.0, x, y)
         )
-        # Opacity is not inherited as a property — it multiplies down the tree.
-        style["opacity"] = str(
-            _number(inherited.get("opacity", "1"), 1)
-            * _number(child.get("opacity", "1"), 1)
-        )
 
-        if tag in ("g", "svg", "a"):
-            _walk(child, style, shapes, rules, gradients, notes, box)
-            continue
-        if tag == "use":
-            if "use" not in notes:
-                notes.append("Reused shapes are not followed.")
-            continue
-
-        path = _path_of(child, tag)
-        if path is None:
-            continue
-        shape = _paint(path, style, gradients, notes)
-        if shape is not None:
-            shapes.append(shape)
+    # A `<symbol>` or an `<svg>` is a box of children; anything else is one
+    # element, and it is drawn even though its own tag would be skipped where
+    # it stands — that is the whole point of `<defs>`.
+    if _tag(target) in ("symbol", "svg", "defs", "g"):
+        _walk(target, moved, world, depth + 1)
+    else:
+        _draw(target, moved, world, depth + 1)
 
 
 def _style_of(node, rules) -> dict:
@@ -230,40 +386,98 @@ def _declarations(body: str) -> dict:
 
 
 def _gradients(root) -> dict:
-    """Every gradient reduced to one colour — the mean of its stops.
+    """Every gradient, read whole: its stops, its geometry and its units.
 
-    An honest lie: a gradient drawn as a flat colour is recognisably the shape
-    it should be, where a gradient dropped altogether is a hole. The picture
-    says that this happened.
+    **Stops are often somewhere else.** A gradient may carry none of its own and
+    point at another with `href` — which is how every editor writes a family of
+    gradients that differ only in where they run — so the reference is followed
+    for whatever this one does not say.
     """
-    out = {}
+    found = {}
     for node in root.iter():
-        if _tag(node) not in ("linearGradient", "radialGradient"):
+        tag = _tag(node)
+        if tag not in ("linearGradient", "radialGradient"):
             continue
-        stops = []
-        for stop in node.iter():
-            if _tag(stop) != "stop":
-                continue
-            style = _declarations(stop.get("style", ""))
-            colour = style.get("stop-color") or stop.get("stop-color") or "#000000"
-            alpha = _number(
-                style.get("stop-opacity") or stop.get("stop-opacity") or "1", 1
-            )
-            rgba = _colour(colour, 1)
-            if rgba:
-                stops.append((rgba, alpha))
+        name = node.get("id")
+        if not name:
+            continue
+        found[name] = node
+
+    out = {}
+    for name, node in found.items():
+        stops = _stops(node, found)
         if not stops:
             continue
-        count = len(stops)
-        red = sum(int(s[0][1:3], 16) for s, _ in stops) // count
-        green = sum(int(s[0][3:5], 16) for s, _ in stops) // count
-        blue = sum(int(s[0][5:7], 16) for s, _ in stops) // count
-        opacity = sum(a for _, a in stops) / count
-        if node.get("id"):
-            out[node.get("id")] = "#%02x%02x%02x%02x" % (
-                red, green, blue, max(0, min(255, round(opacity * 255)))
-            )
+        out[name] = {
+            "kind": "radial" if _tag(node) == "radialGradient" else "linear",
+            "stops": stops,
+            "units": _inherited_attribute(node, found, "gradientUnits")
+                     or "objectBoundingBox",
+            "spread": _inherited_attribute(node, found, "spreadMethod") or "pad",
+            "transform": _transform(
+                _inherited_attribute(node, found, "gradientTransform") or ""
+            ),
+            "numbers": {
+                key: _inherited_attribute(node, found, key)
+                for key in ("x1", "y1", "x2", "y2", "cx", "cy", "r", "fx", "fy")
+            },
+        }
     return out
+
+
+def _reference(node, found):
+    """What this gradient inherits from, if it points at one."""
+    href = (
+        node.get("href")
+        or node.get("{http://www.w3.org/1999/xlink}href")
+        or ""
+    ).lstrip("#")
+    return found.get(href)
+
+
+def _inherited_attribute(node, found, key, depth=0):
+    value = node.get(key)
+    if value is not None or depth >= MAX_DEPTH:
+        return value
+    other = _reference(node, found)
+    return None if other is None else _inherited_attribute(other, found, key, depth + 1)
+
+
+def _stops(node, found, depth=0):
+    """The colour stops, in order, following a reference where there are none."""
+    out = []
+    for stop in node:
+        if _tag(stop) != "stop":
+            continue
+        style = _declarations(stop.get("style", ""))
+        colour = style.get("stop-color") or stop.get("stop-color") or "#000000"
+        alpha = _number(
+            style.get("stop-opacity") or stop.get("stop-opacity") or "1", 1
+        )
+        offset = stop.get("offset", "0")
+        at = _number(offset, 0)
+        if str(offset).strip().endswith("%"):
+            at /= 100.0
+        rgba = _colour(colour, alpha)
+        if rgba is None:
+            rgba = "#00000000"
+        out.append({"at": max(0.0, min(1.0, at)), "colour": rgba})
+    if out or depth >= MAX_DEPTH:
+        return out
+    other = _reference(node, found)
+    return [] if other is None else _stops(other, found, depth + 1)
+
+
+def _average(stops):
+    """A gradient as one colour, for where it cannot be drawn as a gradient."""
+    if not stops:
+        return None
+    count = len(stops)
+    parts = [0, 0, 0, 0]
+    for stop in stops:
+        for i in range(4):
+            parts[i] += int(stop["colour"][1 + i * 2:3 + i * 2], 16)
+    return "#%02x%02x%02x%02x" % tuple(value // count for value in parts)
 
 
 def _view_box(root):
@@ -674,7 +888,14 @@ def _apply(matrix, points):
     return out
 
 
-def _colour(value, opacity, gradients=None, notes=None):
+def _named_paint(value):
+    """The id a paint points at, or None when it is an ordinary colour."""
+    if value and value.strip().lower().startswith("url("):
+        return value.strip()[4:-1].strip("'\"#) ")
+    return None
+
+
+def _colour(value, opacity):
     """One paint, as `#rrggbbaa`, or None where there is nothing to paint."""
     if value is None:
         return None
@@ -682,13 +903,7 @@ def _colour(value, opacity, gradients=None, notes=None):
     if value in ("none", "transparent", ""):
         return None
     if value.startswith("url("):
-        name = value[4:-1].strip("'\"#) ")
-        found = (gradients or {}).get(name)
-        if found is None:
-            return None
-        if notes is not None and "gradient" not in notes:
-            notes.append("Gradients are drawn in one flat colour.")
-        return _with_opacity(found, opacity)
+        return None
     if value in NAMED:
         found = NAMED[value]
         return None if found is None else _with_opacity(found + "ff", opacity)
@@ -731,25 +946,121 @@ def _byte(value):
     return max(0, min(255, int(round(value))))
 
 
+def _bounds(points):
+    """The box a shape occupies, in its own coordinates."""
+    if not points:
+        return (0.0, 0.0, 0.0, 0.0)
+    xs = points[0::2]
+    ys = points[1::2]
+    return (min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
+
+
+def _is_similarity(matrix):
+    """Whether a transform keeps circles circular.
+
+    A gradient that runs along a line survives any transform — a line maps to a
+    line. A round one does not: squash it unevenly and the circle becomes an
+    ellipse, which is a shape the host is not handed a way to describe.
+    """
+    a, b, c, d = matrix[:4]
+    return abs(a - d) < 1e-6 and abs(b + c) < 1e-6
+
+
+def _gradient_paint(name, gradients, opacity, matrix, bounds, notes):
+    """One gradient in the drawing's own coordinates, or a flat colour.
+
+    Everything a format knows is undone here: fractions of the shape's own box
+    turned into real coordinates, the gradient's own transform composed with the
+    shape's, the stops sorted and their colours resolved. What the host receives
+    is two points (or a centre and a radius) and a list of stops.
+    """
+    found = (gradients or {}).get(name)
+    if found is None:
+        return None, None
+    stops = [
+        {"at": stop["at"], "colour": _with_opacity(stop["colour"], opacity)}
+        for stop in found["stops"]
+    ]
+    if not stops:
+        return None, None
+
+    x, y, width, height = bounds
+    fractional = found["units"] != "userSpaceOnUse"
+    if fractional:
+        if width <= 0 or height <= 0:
+            return _with_opacity(_average(stops), 1), None
+        place = (width, 0.0, 0.0, height, x, y)
+    else:
+        place = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+    whole = _compose(_compose(matrix, place), found["transform"])
+
+    def number(key, fallback):
+        value = found["numbers"].get(key)
+        if value is None:
+            return fallback
+        got = _number(value, fallback)
+        if str(value).strip().endswith("%"):
+            got /= 100.0
+            if not fractional:
+                got *= width if key in ("x1", "x2", "cx", "fx", "r") else height
+        return got
+
+    if found["kind"] == "linear":
+        x1, y1 = number("x1", 0.0), number("y1", 0.0)
+        x2, y2 = number("x2", 1.0), number("y2", 0.0)
+        moved = _apply(whole, [x1, y1, x2, y2])
+        return None, {
+            "kind": "linear",
+            "from": [moved[0], moved[1]],
+            "to": [moved[2], moved[3]],
+            "stops": stops,
+            "spread": found["spread"],
+        }
+
+    # Round, and only where the shape has not been squashed out of shape.
+    if not _is_similarity(whole):
+        if notes is not None and "round gradient" not in " ".join(notes):
+            notes.append(
+                "A round gradient on a stretched shape is drawn in one colour."
+            )
+        return _with_opacity(_average(stops), 1), None
+    cx, cy = number("cx", 0.5), number("cy", 0.5)
+    radius = number("r", 0.5)
+    fx, fy = number("fx", cx), number("fy", cy)
+    moved = _apply(whole, [cx, cy, fx, fy])
+    scale = math.sqrt(abs(whole[0] * whole[3] - whole[1] * whole[2])) or 1.0
+    return None, {
+        "kind": "radial",
+        "centre": [moved[0], moved[1]],
+        "focus": [moved[2], moved[3]],
+        "radius": radius * scale,
+        "stops": stops,
+        "spread": found["spread"],
+    }
+
+
 def _paint(path, style, gradients, notes):
     verbs, points = path
     if style.get("display") == "none" or style.get("visibility") == "hidden":
         return None
     matrix = style["transform"]
+    bounds = _bounds(points)
     points = _apply(matrix, points)
 
     whole = _number(style.get("opacity", "1"), 1)
-    fill = _colour(
-        style.get("fill", "#000000"),
-        _number(style.get("fill-opacity", "1"), 1) * whole,
-        gradients, notes,
-    )
-    stroke = _colour(
-        style.get("stroke", "none"),
-        _number(style.get("stroke-opacity", "1"), 1) * whole,
-        gradients, notes,
-    )
-    if fill is None and stroke is None:
+
+    def paint(key, fallback):
+        value = style.get(key, fallback)
+        alpha = _number(style.get("%s-opacity" % key, "1"), 1) * whole
+        name = _named_paint(value)
+        if name is None:
+            return _colour(value, alpha), None
+        return _gradient_paint(name, gradients, alpha, matrix, bounds, notes)
+
+    fill, fill_gradient = paint("fill", "#000000")
+    stroke, stroke_gradient = paint("stroke", "none")
+    if fill is None and stroke is None and fill_gradient is None \
+            and stroke_gradient is None:
         return None
 
     # A stroke is drawn in the shape's own space, so it is scaled by whatever
@@ -758,7 +1069,7 @@ def _paint(path, style, gradients, notes):
     scale = math.sqrt(abs(matrix[0] * matrix[3] - matrix[1] * matrix[2])) or 1.0
     width = _number(style.get("stroke-width", "1"), 1) * scale
 
-    return {
+    out = {
         "verbs": base64.b64encode(bytes(verbs)).decode("ascii"),
         "points": base64.b64encode(
             struct.pack("<%df" % len(points), *points)
@@ -770,3 +1081,8 @@ def _paint(path, style, gradients, notes):
         "cap": style.get("stroke-linecap", "butt"),
         "join": style.get("stroke-linejoin", "miter"),
     }
+    if fill_gradient is not None:
+        out["fillGradient"] = fill_gradient
+    if stroke_gradient is not None:
+        out["strokeGradient"] = stroke_gradient
+    return out

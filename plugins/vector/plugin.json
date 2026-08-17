@@ -1,8 +1,8 @@
 {
   "id": "org.xcommander.vector",
   "name": "Vector graphics",
-  "version": "0.1.0",
-  "description": "Drawings made of shapes, drawn as shapes rather than turned into a picture — so they stay sharp however far in you go. SVG today: paths, the basic shapes, transforms, CSS in a <style> block, fills and strokes. EPS and the rest to follow.",
+  "version": "0.4.0",
+  "description": "Drawings made of shapes, drawn as shapes rather than turned into a picture — so they stay sharp however far in you go. SVG with its text, gradients and reused shapes, and EPS by running it: a PostScript file is a program, and the drawing falls out of executing it.",
   "category": "Viewers",
   "author": "xcommander",
   "homepage": "https://github.com/xsm909/xcommander-plugins",
@@ -21,6 +21,10 @@
       "id": "vector.drawing",
       "title": "Drawing",
       "extensions": [
+        "eps",
+        "epsf",
+        "epsi",
+        "ps",
         "svg"
       ],
       "priority": 20

@@ -38,6 +38,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from xcommander import Plugin, error  # noqa: E402
 
+import eps  # noqa: E402
 import svg  # noqa: E402
 
 plugin = Plugin("org.xcommander.vector", "Vector graphics")
@@ -48,6 +49,10 @@ MAX_BYTES = 64 << 20
 
 READERS = {
     "svg": (svg.read, svg.SvgError, "SVG"),
+    "eps": (eps.read, eps.EpsError, "EPS"),
+    "epsf": (eps.read, eps.EpsError, "EPS"),
+    "epsi": (eps.read, eps.EpsError, "EPS"),
+    "ps": (eps.read, eps.EpsError, "PostScript"),
 }
 
 
