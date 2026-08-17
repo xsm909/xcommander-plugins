@@ -85,18 +85,60 @@ def _b64_floats(values) -> str:
 #: would otherwise put tens of megabytes through a pipe meant for a preview.
 MAX_PICTURE_BYTES = 16 << 20
 
+#: What the host can actually decode, by the first bytes of the file. A real
+#: model here ships a 2 MB Targa, which Flutter has no decoder for: sending it
+#: costs the pipe two megabytes and the host an error, and the mesh falls back
+#: to its material colour either way. So it is not sent.
+_DECODABLE = (
+    b"\x89PNG",          # PNG
+    b"\xff\xd8\xff",     # JPEG
+    b"GIF8",             # GIF
+    b"BM",               # BMP
+    b"RIFF",             # WebP, checked further below
+)
 
-def _beside(url: str, relative: str) -> str:
-    """The URL of a file named relative to the one being read.
 
-    A texture that is not in the file is named the way the machine that wrote
-    the file saw it — `..\\textures\\skin.png`, or an absolute path on a disk
-    that belongs to somebody else. Only the relative form is followed, and only
-    downwards from the folder the FBX is in; the name on its own is tried too,
-    because a `.fbm` folder an exporter promised is very often not there.
+def _readable(data: bytes) -> bool:
+    if data[:4] == b"RIFF":
+        return data[8:12] == b"WEBP"
+    return any(data.startswith(magic) for magic in _DECODABLE)
+
+
+def _rooted(name: str) -> bool:
+    """Whether a name is a place on somebody else's machine.
+
+    FBX has a field called `RelativeFilename` and real files put absolute paths
+    in it: the model that taught this one says
+    `C:/Temp/CharacterCreator4Temp/FbxWorkingDirectory/skull_Diffuse.png`.
+    Such a name says nothing about where the picture is now, so it is only ever
+    used for the name at the end of it.
+    """
+    return name.startswith("/") or (len(name) > 1 and name[1] == ":")
+
+
+def _places(url: str, picture: dict) -> list:
+    """Where to look for a picture that is not inside the file, in order.
+
+    Relative as written, if it really is relative and points downward; then the
+    bare name in the folder the model is in, because a `.fbm` folder an
+    exporter promised is very often not there; then a `textures` folder beside
+    the model and beside its own folder, which is how a downloaded model is
+    laid out — `source/thing.fbx` with `textures/` next to `source`.
     """
     folder = url.rsplit("/", 1)[0] if "/" in url else url
-    return folder + "/" + quote(relative.lstrip("./"))
+    above = folder.rsplit("/", 1)[0] if "/" in folder else folder
+    wanted = picture.get("beside") or ""
+    name = picture.get("name") or wanted.rsplit("/", 1)[-1]
+
+    out = []
+    if wanted and not _rooted(wanted) and ".." not in wanted:
+        out.append(folder + "/" + quote(wanted.lstrip("./")))
+    if name:
+        for place in (folder, folder + "/textures", above + "/textures"):
+            candidate = place + "/" + quote(name)
+            if candidate not in out:
+                out.append(candidate)
+    return out
 
 
 def _pictures(url: str, parts: list) -> list:
@@ -118,21 +160,13 @@ def _pictures(url: str, parts: list) -> list:
         data = picture.get("bytes")
         name = picture.get("name") or picture.get("beside") or ""
         if data is None:
-            wanted = picture.get("beside") or ""
-            if not wanted:
-                continue
-            # As written, then by its bare name in the same folder as the FBX.
-            tries = [wanted]
-            if "/" in wanted:
-                tries.append(wanted.rsplit("/", 1)[1])
-            for attempt in tries:
+            for attempt in _places(url, picture):
                 try:
-                    data = plugin.read_file(_beside(url, attempt),
+                    data = plugin.read_file(attempt,
                                             max_bytes=MAX_PICTURE_BYTES - spent)
                 except Exception:  # noqa: BLE001 - a missing texture is not a crash
                     data = None
                 if data:
-                    name = attempt
                     break
             if not data:
                 continue
@@ -141,7 +175,7 @@ def _pictures(url: str, parts: list) -> list:
         if key in known:
             mesh["image"] = known[key]
             continue
-        if spent + len(data) > MAX_PICTURE_BYTES:
+        if spent + len(data) > MAX_PICTURE_BYTES or not _readable(data):
             continue
         spent += len(data)
         known[key] = len(images)

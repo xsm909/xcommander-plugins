@@ -78,6 +78,65 @@ def _node(**properties) -> fbxfile.Node:
     )
 
 
+def _object(kind: str, ident: int, name: str, subkind: str, *children) -> fbxfile.Node:
+    return fbxfile.Node(kind, [ident, "%s\x00\x01%s" % (name, kind), subkind],
+                        list(children))
+
+
+def _field(name: str, value) -> fbxfile.Node:
+    return fbxfile.Node(name, [value], [])
+
+
+def check_pictures() -> list:
+    """Finding a material's bitmap in a file that asks for it by the wrong name.
+
+    Taken from a real model — a downloaded character with three meshes reading
+    one picture through three separate `Texture` objects, only one of which
+    carries the bytes. The other two name a folder on the machine that made the
+    file, in the field called `RelativeFilename`:
+    `C:/Temp/CharacterCreator4Temp/FbxWorkingDirectory/skull_Diffuse.png`.
+    Before this, two thirds of that model drew with no picture on it at all.
+    """
+    problems = []
+
+    holder = _object("Video", 3, "held", "Clip",
+                     _field("RelativeFilename", "textures/skin.png"),
+                     _field("Content", b"\x89PNG-the-bytes"))
+    stray = _object("Video", 4, "stray", "Clip",
+                    _field("RelativeFilename",
+                           "C:/Temp/FbxWorkingDirectory/skin.png"))
+    document = fbxfile.Document(7400, fbxfile.Node("", [], [
+        fbxfile.Node("Objects", [], [
+            _object("Material", 1, "skin", ""),
+            _object("Texture", 2, "skin_tex", ""),
+            holder,
+            _object("Material", 5, "skin_again", ""),
+            _object("Texture", 6, "skin_tex_again", ""),
+            stray,
+        ]),
+        fbxfile.Node("Connections", [], [
+            fbxfile.Node("C", ["OP", 2, 1, "DiffuseColor"], []),
+            fbxfile.Node("C", ["OO", 3, 2], []),
+            fbxfile.Node("C", ["OP", 6, 5, "DiffuseColor"], []),
+            fbxfile.Node("C", ["OO", 4, 6], []),
+        ]),
+    ]), True)
+
+    scene = Scene(document)
+    held = geometry.bitmaps(scene)
+    if "skin.png" not in held:
+        problems.append("the bitmap in the file was not gathered: %s" % list(held))
+
+    for ident, what in ((1, "the material that carries its own bytes"),
+                        (5, "the material that names somebody else's disk")):
+        material = scene.objects[ident]
+        picture = geometry._picture_of(scene, material, held)
+        if not picture or picture.get("bytes") != b"\x89PNG-the-bytes":
+            problems.append("%s got %s" % (what, picture))
+
+    return problems
+
+
 def check_arithmetic() -> list:
     """Four things about a node's transform that no file has to be read to know.
 
@@ -175,6 +234,9 @@ def main(folder: str) -> int:
 
     for problem in check_arithmetic():
         print("BAD   %-46s %s" % ("(the transform arithmetic)", problem))
+        failures += 1
+    for problem in check_pictures():
+        print("BAD   %-46s %s" % ("(finding a material's picture)", problem))
         failures += 1
     moved: list = []
     slowest = (0.0, "")

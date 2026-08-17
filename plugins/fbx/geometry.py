@@ -388,13 +388,41 @@ def _colour_of(scene: Scene, model_id: int) -> str:
 _COLOUR_PROPERTIES = ("DiffuseColor", "Maya|baseColor", "BaseColor", "3dsMax|Parameters|base_color")
 
 
-def _picture_of(scene: Scene, material: Obj) -> Optional[dict]:
+def _named(node: Node) -> str:
+    """The bare file name a texture or a clip goes under, lowercased."""
+    for field in ("RelativeFilename", "FileName", "Filename"):
+        value = node.value(field)
+        if isinstance(value, str) and value:
+            return value.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return ""
+
+
+def bitmaps(scene: Scene) -> Dict[str, bytes]:
+    """Every bitmap the file carries, under the name it goes by.
+
+    Wanted because a file may hold one picture and refer to it more than once:
+    a real model here has three meshes reading `skull_Diffuse.png` through
+    three separate `Texture` objects, and only one of them carries the bytes.
+    The other two name a folder on the machine that made the file. The picture
+    is right there — it is only being asked for by the wrong name.
+    """
+    out: Dict[str, bytes] = {}
+    for video in scene.of_kind("Video"):
+        content = video.node.value("Content")
+        if not isinstance(content, (bytes, bytearray)) or not content:
+            continue
+        name = _named(video.node)
+        if name:
+            out.setdefault(name, bytes(content))
+    return out
+
+
+def _picture_of(scene: Scene, material: Obj, held: Dict[str, bytes]) -> Optional[dict]:
     """The bitmap a material is coloured from, as far as the file goes.
 
-    Either the bytes themselves, when the file carries them, or the name of a
-    file to look for beside it. Which of the two it is is left to the caller,
-    because reading a second file is the host's business and this module has no
-    way to ask.
+    Either the bytes themselves, when the file carries them under any name, or
+    a name to go looking for. Looking is left to the caller: reading a second
+    file is the host's business and this module has no way to ask.
     """
     for child_id, prop in scene.properties.get(material.id, ()):
         if prop not in _COLOUR_PROPERTIES:
@@ -406,23 +434,26 @@ def _picture_of(scene: Scene, material: Obj) -> Optional[dict]:
         for clip in clips:
             content = clip.node.value("Content")
             if isinstance(content, (bytes, bytearray)) and len(content) > 0:
-                return {"bytes": bytes(content), "name": str(clip.node.value("RelativeFilename") or "")}
+                return {"bytes": bytes(content), "name": _named(clip.node)}
+        for clip in clips:
+            name = _named(clip.node)
+            if name and name in held:
+                return {"bytes": held[name], "name": name}
         for clip in clips:
             relative = clip.node.value("RelativeFilename")
-            absolute = clip.node.value("FileName") or clip.node.value("Filename")
             if isinstance(relative, str) and relative:
-                return {"beside": relative.replace("\\", "/"),
-                        "absolute": absolute if isinstance(absolute, str) else ""}
+                return {"beside": relative.replace("\\", "/"), "name": _named(clip.node)}
     return None
 
 
-def surfaces(scene: Scene, model_id: int) -> List[dict]:
+def surfaces(scene: Scene, model_id: int, held: Optional[Dict[str, bytes]] = None) -> List[dict]:
     """The model's materials, in the order the polygons index them by.
 
     The order is the order the connections were written in, which is what a
     ``LayerElementMaterial`` slot counts along — not the order the objects
     happen to sit in the file.
     """
+    held = bitmaps(scene) if held is None else held
     out = []
     for material in scene.children_of(model_id, "Material"):
         value = material.node.property70("DiffuseColor")
@@ -435,7 +466,7 @@ def surfaces(scene: Scene, model_id: int) -> List[dict]:
             "id": material.id,
             "name": material.name,
             "color": colour,
-            "picture": _picture_of(scene, material),
+            "picture": _picture_of(scene, material, held),
         })
     return out
 
@@ -466,6 +497,10 @@ def meshes(scene: Scene, max_triangles: int = 400000) -> Tuple[List[dict], dict]
     """
     cache: Dict[int, List[float]] = {}
     fix = _axis_fix(scene)
+    # Every bitmap in the file, gathered once: a material may name a picture
+    # the file holds under a different `Texture`, and finding that costs
+    # nothing here and a missing texture there.
+    held = bitmaps(scene)
     out: List[dict] = []
     total = 0
     dropped = 0
@@ -576,7 +611,7 @@ def meshes(scene: Scene, max_triangles: int = 400000) -> Tuple[List[dict], dict]
                 builder.triangle(fan[0], fan[i], fan[i + 1])
             polygon = []
 
-        made = surfaces(scene, holder.id) if holder else []
+        made = surfaces(scene, holder.id, held) if holder else []
         name = (holder.name if holder and holder.name else geometry.name) or "(unnamed)"
         for slot in sorted(builders):
             builder = builders[slot]
