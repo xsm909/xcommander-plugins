@@ -1,0 +1,34 @@
+{
+  "id": "org.xcommander.pictures",
+  "name": "Pictures",
+  "version": "0.2.0",
+  "description": "The raster formats the machine's own decoder will not open. GIMP's .xcf with its layers composited, Photoshop's .psd and .psb through the flattened copy inside them, and Targa — the same picture on every machine, whatever the platform's own decoder happens to know.",
+  "category": "Viewers",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "image",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "viewers": [
+    {
+      "id": "pictures.raster",
+      "title": "Picture",
+      "extensions": [
+        "psb",
+        "psd",
+        "targa",
+        "tga",
+        "tpic",
+        "xcf"
+      ],
+      "priority": 20
+    }
+  ]
+}
