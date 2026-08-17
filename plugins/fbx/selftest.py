@@ -137,6 +137,133 @@ def check_pictures() -> list:
     return problems
 
 
+def check_bending() -> list:
+    """A curve that says it bends is read bent, and its slopes are read right.
+
+    Two facts, both taken off real files rather than believed.
+
+    The first: some files write the tangent array as int32 — the *bits* of a
+    float, in an integer array. Read as integers they come out around a
+    thousand million and a curve built from them explodes rather than bends.
+    `-1036211200` is `-47.168`, and `-47.168` is exactly the rate between the
+    first two keys of the curve that number came from.
+
+    The second is what it is for: between two keys of the same value, slopes
+    that leave one going up and come into the next going down make a bump. Read
+    straight, there is no bump at all — which is what the whole corpus of
+    resampled pairs was showing as an error of 8.6 in a spread of 90.
+    """
+    problems = []
+    if abs(animation._real(-1036211200) - (-47.16796875)) > 1e-6:
+        problems.append("the bits of a float read as an integer: %r"
+                        % animation._real(-1036211200))
+    if abs(animation._real(0.25) - 0.25) > 1e-12:
+        problems.append("a float that was written as one came back wrong")
+
+    second = int(fbxfile.TIME_UNIT)
+    bump = animation.Channel(
+        [0, second], [10.0, 10.0],
+        [(1, animation.CURVED, 40.0, -40.0)],
+    )
+    middle = bump.at(second // 2, 0.0)
+    if middle <= 10.5:
+        problems.append("a curve with slopes on it did not bend: %r" % middle)
+    if abs(bump.at(0, 0.0) - 10.0) > 1e-9 or abs(bump.at(second, 0.0) - 10.0) > 1e-9:
+        problems.append("bending moved the keys themselves")
+
+    straight = animation.Channel([0, second], [10.0, 10.0], [])
+    if abs(straight.at(second // 2, 0.0) - 10.0) > 1e-9:
+        problems.append("a curve with nothing said about it did not read straight")
+    return problems
+
+
+def check_laying() -> list:
+    """A picture asked to repeat three times repeats three times.
+
+    `Scaling` on a texture is the size of one tile rather than a multiplier, so
+    a third means three times round — which was read off an exporter rather
+    than assumed: a cube asked to repeat a picture three times comes out
+    carrying 0.3333, and one asked for a picture twice as big carries 0.5 with
+    its offset written straight.
+
+    Checked by what it does to the spread of the coordinates rather than by the
+    arithmetic, which would only be the same line written twice.
+    """
+    problems = []
+    square = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]
+
+    laid = list(square)
+    geometry._lay(laid, {"scale": (1.0 / 3.0, 0.5), "offset": (0.25, 0.0)})
+    across = max(laid[0::2]) - min(laid[0::2])
+    down = max(laid[1::2]) - min(laid[1::2])
+    if abs(across - 3.0) > 1e-9:
+        problems.append("a third across should be three times round, got %g" % across)
+    if abs(down - 2.0) > 1e-9:
+        problems.append("a half down should be twice round, got %g" % down)
+    if abs(min(laid[0::2]) - 0.25) > 1e-9:
+        problems.append("the offset should move it, got %g" % min(laid[0::2]))
+
+    # And a texture that says nothing leaves the coordinates alone, to the bit.
+    untouched = list(square)
+    geometry._lay(untouched, {})
+    if untouched != square:
+        problems.append("a picture with nothing said about it was moved anyway")
+    return problems
+
+
+def check_rigid() -> list:
+    """A mesh nothing skins still moves if its own node does.
+
+    A propeller, a door, a lid: one rigid piece animated by its own node and
+    not by any bone. Until 2026-08-17 none of them played at all — the baking
+    walked clusters, a mesh with no clusters got no track, and the viewer
+    showed a still model with a transport bar under it. It is sent as a skin
+    of one bone pulling on everything, so the host needed no telling.
+    """
+    model_id, curve_node_id, curve_id, layer_id, stack_id = 1, 2, 3, 4, 5
+    document = fbxfile.Document(7400, fbxfile.Node("", [], [
+        fbxfile.Node("Objects", [], [
+            _object("Model", model_id, "Propeller", "Mesh"),
+            _object("AnimationCurveNode", curve_node_id, "T", ""),
+            _object("AnimationCurve", curve_id, "X", "",
+                    _field("KeyTime", [0, 46186158000]),
+                    _field("KeyValueFloat", [0.0, 10.0])),
+            _object("AnimationLayer", layer_id, "Base", ""),
+            _object("AnimationStack", stack_id, "Take 001", ""),
+        ]),
+        fbxfile.Node("Connections", [], [
+            fbxfile.Node("C", ["OO", layer_id, stack_id], []),
+            fbxfile.Node("C", ["OO", curve_node_id, layer_id], []),
+            fbxfile.Node("C", ["OP", curve_node_id, model_id, "Lcl Translation"], []),
+            fbxfile.Node("C", ["OP", curve_id, curve_node_id, "d|X"], []),
+        ]),
+    ]), True)
+
+    scene = Scene(document)
+    problems = []
+    if not animation.moves(scene, model_id):
+        problems.append("a node with a curve on it was not seen to move")
+
+    mesh = {
+        "clusters": [],
+        "rigid": True,
+        "modelId": model_id,
+        "placement_no_fix": list(geometry.IDENTITY),
+    }
+    baked = animation.bake(scene, scene.objects[stack_id], [mesh],
+                           list(geometry.IDENTITY))
+    if baked is None or not baked["tracks"] or baked["tracks"][0] is None:
+        problems.append("a mesh moved by its own node was given no track")
+        return problems
+
+    track = baked["tracks"][0]
+    first = track[12:15]
+    last = track[-4:-1]
+    if abs(first[0]) > 1e-9 or abs(last[0] - 10.0) > 1e-6:
+        problems.append("the track runs %s to %s, wanted 0 to 10" % (first, last))
+    return problems
+
+
 def check_curves() -> list:
     """Reading a curve from where the last read finished answers the same.
 
@@ -303,6 +430,15 @@ def main(folder: str) -> int:
         failures += 1
     for problem in check_curves():
         print("BAD   %-46s %s" % ("(reading a curve)", problem))
+        failures += 1
+    for problem in check_rigid():
+        print("BAD   %-46s %s" % ("(a mesh moved by its own node)", problem))
+        failures += 1
+    for problem in check_laying():
+        print("BAD   %-46s %s" % ("(how a picture is laid on)", problem))
+        failures += 1
+    for problem in check_bending():
+        print("BAD   %-46s %s" % ("(how a curve bends)", problem))
         failures += 1
     moved: list = []
     slowest = (0.0, "")

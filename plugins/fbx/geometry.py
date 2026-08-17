@@ -522,20 +522,64 @@ def _picture_of(scene: Scene, material: Obj, held: Dict[str, bytes]) -> Optional
         texture = scene.objects.get(child_id)
         if texture is None or texture.kind != "Texture":
             continue
+        # How the picture is laid on: a file that tiles one across a wall says
+        # so here, and ignoring it draws one stretched copy of a texture meant
+        # to repeat thirty times.
+        laid = {
+            "scale": _vector(texture.node, "Scaling", (1.0, 1.0, 1.0))[:2],
+            "offset": _vector(texture.node, "Translation")[:2],
+        }
         clips = [texture] + scene.children_of(texture.id, "Video")
         for clip in clips:
             content = clip.node.value("Content")
             if isinstance(content, (bytes, bytearray)) and len(content) > 0:
-                return {"bytes": bytes(content), "name": _named(clip.node)}
+                return dict(laid, bytes=bytes(content), name=_named(clip.node))
         for clip in clips:
             name = _named(clip.node)
             if name and name in held:
-                return {"bytes": held[name], "name": name}
+                return dict(laid, bytes=held[name], name=name)
         for clip in clips:
             relative = clip.node.value("RelativeFilename")
             if isinstance(relative, str) and relative:
-                return {"beside": relative.replace("\\", "/"), "name": _named(clip.node)}
+                return dict(laid, beside=relative.replace("\\", "/"),
+                            name=_named(clip.node))
     return None
+
+
+def _lay(uvs: List[float], picture: dict) -> None:
+    """How the picture sits on the surface, applied to the coordinates.
+
+    A file that tiles one picture thirty times across a wall says so on the
+    texture rather than in the mesh, and without this it draws as a single
+    stretched copy.
+
+    **`Scaling` is the size of one tile, not a multiplier**, so it divides.
+    That was read off the format rather than assumed: a cube whose picture was
+    asked to repeat three times comes out of an exporter carrying `0.3333`, and
+    one asked to be twice as big carries `0.5` with the offset written straight.
+    So `uv / S + T`, both halves of which that round trip pins.
+
+    The second coordinate wants care on top of that. It was turned over when it
+    was read, so that it runs down from the top as every picture does, while
+    the file's scaling and offset are written for it running *up* from the
+    bottom. So it is turned back, laid, and turned over again — the one line
+    below, with the three steps already multiplied out.
+    """
+    scale = picture.get("scale") or (1.0, 1.0)
+    offset = picture.get("offset") or (0.0, 0.0)
+    su, sv = float(scale[0]), float(scale[1])
+    tu, tv = float(offset[0]), float(offset[1])
+    if abs(su) < 1e-9:
+        su = 1.0
+    if abs(sv) < 1e-9:
+        sv = 1.0
+    if su == 1.0 and sv == 1.0 and tu == 0.0 and tv == 0.0:
+        return
+    up, down = 1.0 / su, 1.0 / sv
+    lift = 1.0 - down - tv
+    for i in range(0, len(uvs) - 1, 2):
+        uvs[i] = uvs[i] * up + tu
+        uvs[i + 1] = uvs[i + 1] * down + lift
 
 
 def surfaces(scene: Scene, model_id: int, held: Optional[Dict[str, bytes]] = None) -> List[dict]:
@@ -710,6 +754,9 @@ def meshes(scene: Scene, max_triangles: int = 400000) -> Tuple[List[dict], dict]
             if not builder.indices:
                 continue
             surface = made[slot] if 0 <= slot < len(made) else None
+            picture = surface["picture"] if surface else None
+            if picture:
+                _lay(builder.uvs, picture)
             total += len(builder.indices) // 3
             out.append({
                 "name": name if len(builders) < 2 or surface is None
@@ -721,12 +768,13 @@ def meshes(scene: Scene, max_triangles: int = 400000) -> Tuple[List[dict], dict]
                 "sources": builder.sources,
                 "sourceCount": len(vertices) // 3,
                 "geometryId": geometry.id,
+                "modelId": holder.id if holder else None,
                 # Where the mesh was placed, before the axis fix — the skinning
                 # maths needs to undo exactly this and no more.
                 "placement_no_fix": unfixed,
                 "color": (surface["color"] if surface else "")
                          or (_colour_of(scene, holder.id) if holder else ""),
-                "picture": surface["picture"] if surface else None,
+                "picture": picture,
             })
 
     note = {"droppedMeshes": dropped, "triangles": total, "held": total}

@@ -199,6 +199,21 @@ def _skin(scene, parts: list, fix: list) -> dict:
         clusters = animation.clusters_of(scene, mesh["geometryId"])
         mesh["clusters"] = clusters
         if not clusters:
+            # A mesh nothing skins still moves if its own node does — a
+            # propeller, a door, a lid. It is sent as a skin of one bone
+            # pulling on every vertex, so the host draws it by the same
+            # arithmetic and knows nothing about the difference. Only when
+            # something in the file actually moves it: weights on a model that
+            # never budges are bytes for nothing.
+            if animation.moves(scene, mesh.get("modelId")):
+                mesh["rigid"] = True
+                count = len(mesh["positions"]) // 3
+                mesh["jointIndices"] = [0] * (count * animation.MAX_INFLUENCES)
+                mesh["jointWeights"] = [
+                    1.0 if slot == 0 else 0.0
+                    for _ in range(count)
+                    for slot in range(animation.MAX_INFLUENCES)
+                ]
             continue
 
         pulls = animation.influences(clusters, mesh["sourceCount"])
@@ -271,7 +286,8 @@ def mesh3d(meshes: list, up_axis: str, unit_scale: float, note: dict,
                 # a fifth of everything sent.
                 "uvs": _b64_floats(mesh["uvs"]) if mesh.get("image", -1) >= 0
                        and mesh.get("uvs") else "",
-                "joints": len(mesh.get("clusters") or []),
+                "joints": len(mesh.get("clusters") or [])
+                          or (1 if mesh.get("rigid") else 0),
                 "jointIndices": base64.b64encode(
                     struct.pack("<%dH" % len(mesh.get("jointIndices") or []),
                                 *(mesh.get("jointIndices") or []))).decode("ascii"),
