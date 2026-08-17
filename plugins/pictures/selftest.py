@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import psd  # noqa: E402
 import tga  # noqa: E402
+import tiff  # noqa: E402
 import xcf  # noqa: E402
 
 FAILURES = []
@@ -182,8 +183,49 @@ def check_targa_corners():
     check("and the literals after it", bytes(picture["pixels"][8:11]), b"\x00\xff\x00")
 
 
+def check_lzw():
+    """TIFF's LZW, against a stream worked out by hand.
+
+    The dictionary is deterministic, so the codes for a short input can be
+    written down on paper: clear (256), then A (65), then B (66), then the
+    entry the decoder must have just built for "AB" (258), then end (257).
+    Nine bits each, packed most significant bit first.
+    """
+    codes = [256, 65, 66, 258, 257]
+    bits = "".join(format(code, "09b") for code in codes)
+    bits += "0" * (-len(bits) % 8)
+    body = bytes(int(bits[i:i + 8], 2) for i in range(0, len(bits), 8))
+    check("lzw by hand", tiff._unlzw(body), b"ABAB")
+
+
+def check_tiff_kinds(folder):
+    """Every arrangement of the same picture must come out the same picture.
+
+    The oracle is not this code: the files are written by the system's own
+    encoder, one uncompressed and stripped, one tiled with a 512-pixel tile,
+    one LZW. If any two of them differ by a byte, one of the three paths
+    through this reader is wrong.
+    """
+    made = {}
+    for name in ("stripped", "tiled32", "opt-lzw"):
+        path = os.path.join(folder, name + ".tiff")
+        if not os.path.exists(path):
+            continue
+        made[name] = tiff.read(open(path, "rb").read())
+    if len(made) < 2:
+        print("  (no matched TIFFs under %s)" % folder)
+        return
+    first = next(iter(made))
+    for name, picture in made.items():
+        check("%s is the same picture as %s" % (name, first),
+              (picture["width"], picture["height"], bytes(picture["pixels"])),
+              (made[first]["width"], made[first]["height"],
+               bytes(made[first]["pixels"])))
+
+
 #: Which reader answers for which extension, as `main.py` has it.
-READERS = {"xcf": xcf.read, "psd": psd.read, "psb": psd.read, "tga": tga.read}
+READERS = {"xcf": xcf.read, "psd": psd.read, "psb": psd.read, "tga": tga.read,
+           "tif": tiff.read, "tiff": tiff.read}
 
 
 def check_files(folder: str):
@@ -225,11 +267,14 @@ def main() -> int:
     print("run-length encoding");   check_rle()
     print("packbits");              check_packbits()
     print("targa corners");         check_targa_corners()
+    print("tiff lzw");              check_lzw()
     print("tiles are byte planes"); check_planes()
     print("zlib tiles");            check_zlib_tiles()
     print("compositing");           check_compositing()
     print("offsets");               check_offsets()
     for folder in sys.argv[1:]:
+        print("the same TIFF three ways, under %s" % folder)
+        check_tiff_kinds(folder)
         print("files under %s" % folder)
         check_files(folder)
     if FAILURES:

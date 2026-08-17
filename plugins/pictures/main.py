@@ -43,6 +43,7 @@ from xcommander import Plugin, error, image  # noqa: E402
 import png  # noqa: E402
 import psd  # noqa: E402
 import tga  # noqa: E402
+import tiff  # noqa: E402
 import xcf  # noqa: E402
 
 plugin = Plugin("org.xcommander.pictures", "Pictures")
@@ -59,6 +60,8 @@ READERS = {
     "psd": (psd.read, psd.PsdError, "Photoshop"),
     "psb": (psd.read, psd.PsdError, "Photoshop"),
     "tga": (tga.read, tga.TgaError, "Targa"),
+    "tif": (tiff.read, tiff.TiffError, "TIFF"),
+    "tiff": (tiff.read, tiff.TiffError, "TIFF"),
     "targa": (tga.read, tga.TgaError, "Targa"),
     "tpic": (tga.read, tga.TgaError, "Targa"),
 }
