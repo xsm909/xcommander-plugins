@@ -213,14 +213,21 @@ def _places(url: str, picture: dict) -> list:
     return out
 
 
-def _pictures(url: str, parts: list) -> list:
+def _pictures(url: str, parts: list) -> tuple:
     """Every bitmap the meshes want, read once, and each mesh told which.
 
     Two meshes made of one material share one picture; a file that carries its
     own bitmaps needs nothing read at all.
+
+    Also counts the pictures a file *names* and does not have. A model exported
+    with its materials but without its images — which is what a downloaded OBJ
+    very often is — then draws in flat colour, and the view can say why instead
+    of leaving it to look like a fault in the reader.
     """
     images: list = []
     known: dict = {}
+    missing: set = set()
+    unreadable: set = set()
     spent = 0
 
     for mesh in parts:
@@ -241,6 +248,7 @@ def _pictures(url: str, parts: list) -> list:
                 if data:
                     break
             if not data:
+                missing.add(name or (picture.get("beside") or "?"))
                 continue
 
         key = hashlib.sha1(data).hexdigest()
@@ -248,6 +256,10 @@ def _pictures(url: str, parts: list) -> list:
             mesh["image"] = known[key]
             continue
         if spent + len(data) > MAX_PICTURE_BYTES or not _readable(data):
+            # Found, and no use: a Targa or a picture past the cap. Which of
+            # the two it is matters to whoever is looking, so it is not lumped
+            # in with a picture that simply is not there.
+            unreadable.add(name or "?")
             continue
         spent += len(data)
         known[key] = len(images)
@@ -257,7 +269,7 @@ def _pictures(url: str, parts: list) -> list:
             "data": base64.b64encode(data).decode("ascii"),
         })
 
-    return images
+    return images, len(missing), len(unreadable)
 
 
 def _skin(scene, parts: list, fix: list) -> dict:
@@ -312,7 +324,8 @@ def _skin(scene, parts: list, fix: list) -> dict:
 
 
 def mesh3d(meshes: list, up_axis: str, unit_scale: float, note: dict,
-           clips: list, images: list) -> dict:
+           clips: list, images: list, missing: int = 0,
+           unreadable: int = 0) -> dict:
     """The content the host draws.
 
     Numbers travel as packed binary rather than as JSON arrays: a mesh of
@@ -321,6 +334,14 @@ def mesh3d(meshes: list, up_axis: str, unit_scale: float, note: dict,
     """
     held = note.get("held", note["triangles"])
     short = held > note["triangles"]
+    said = []
+    if short:
+        said.append("%s of the file's %s triangles"
+                    % (thousands(note["triangles"]), thousands(held)))
+    if missing:
+        said.append("%d picture(s) this file names are not beside it" % missing)
+    if unreadable:
+        said.append("%d picture(s) in a form this cannot read" % unreadable)
     return {
         "kind": "mesh3d",
         "upAxis": up_axis,
@@ -330,8 +351,7 @@ def mesh3d(meshes: list, up_axis: str, unit_scale: float, note: dict,
         # lies. There is a cap, it is reached by real files, and when it is
         # reached the view has to be able to say so.
         "truncated": short,
-        "detail": ("%s of the file's %s triangles"
-                   % (thousands(note["triangles"]), thousands(held))) if short else "",
+        "detail": " · ".join(said),
         "clips": [
             {
                 "name": clip["name"],
@@ -394,10 +414,10 @@ def model(url: str) -> dict:
             "carry — a skeleton and its animation, most likely."
         )
 
-    images = _pictures(url, parts)
+    images, missing, unreadable = _pictures(url, parts)
     facts = loaded.facts()
     return mesh3d(parts, facts["upAxis"], facts["unitScale"], note,
-                  loaded.clips(parts), images)
+                  loaded.clips(parts), images, missing, unreadable)
 
 
 @plugin.viewer("fbx.contents", "What is in the file", extensions=MODELS,
