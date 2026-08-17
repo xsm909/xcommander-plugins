@@ -58,6 +58,7 @@ import math
 from typing import Dict, List, Optional, Tuple
 
 from fbxfile import TIME_UNIT, Node
+import geometry
 from geometry import IDENTITY, compose, local_transform, multiply
 from scene import Obj, Scene
 
@@ -116,11 +117,16 @@ class Channel:
     coarsely than it was keyed — and the sampling here is at least as fine.
     """
 
-    __slots__ = ("times", "values")
+    __slots__ = ("times", "values", "_at")
 
     def __init__(self, times: List[int], values: List[float]):
         self.times = times
         self.values = values
+        #: Where the last question landed. A clip is baked frame after frame in
+        #: order, so the next answer is nearly always the same pair of keys or
+        #: the one after — a step instead of a search over a thousand keys.
+        #: Only a hint: a time that goes backwards falls through to the search.
+        self._at = 0
 
     def at(self, time: int, default: float) -> float:
         if not self.times:
@@ -130,13 +136,24 @@ class Channel:
         if time >= self.times[-1]:
             return self.values[-1]
 
-        low, high = 0, len(self.times) - 1
-        while high - low > 1:
-            middle = (low + high) // 2
-            if self.times[middle] <= time:
-                low = middle
-            else:
-                high = middle
+        times = self.times
+        low = self._at
+        if 0 <= low < len(times) - 1 and times[low] <= time:
+            high = low + 1
+            while high < len(times) - 1 and times[high] <= time:
+                low = high
+                high += 1
+                if times[high] > time:
+                    break
+        else:
+            low, high = 0, len(times) - 1
+            while high - low > 1:
+                middle = (low + high) // 2
+                if times[middle] <= time:
+                    low = middle
+                else:
+                    high = middle
+        self._at = low
 
         span = self.times[high] - self.times[low]
         if span <= 0:
@@ -177,6 +194,11 @@ class Animated:
         #: model id -> property name -> channel letter -> Channel
         self.by_model: Dict[int, Dict[str, Dict[str, Channel]]] = {}
         self.span: Tuple[Optional[int], Optional[int]] = (None, None)
+        #: What each node is made of, and where a node this clip does not touch
+        #: stands. Both are the same at every frame and were being worked out
+        #: at every one of them.
+        self._shapes: Dict[int, "geometry.Shape"] = {}
+        self._still: Dict[int, List[float]] = {}
 
         low = high = None
         for curve_node in scene.children_of(layer_id, "AnimationCurveNode"):
@@ -198,17 +220,28 @@ class Animated:
 
         self.span = (low, high)
 
+    def shape(self, model: Obj):
+        """The node taken apart, once per file rather than once per frame."""
+        known = self._shapes.get(model.id)
+        if known is None:
+            known = self._shapes[model.id] = geometry.Shape(model.node)
+        return known
+
     def local(self, scene: Scene, model: Obj, time: int) -> List[float]:
         """The node's own transform at ``time``.
 
         Anything the clip does not animate keeps whatever the file says it is,
         which is why this reaches for the static value rather than a zero.
         """
+        shape = self.shape(model)
         driven = self.by_model.get(model.id)
         if not driven:
-            return local_transform(model.node)
-
-        node = model.node
+            # Nothing in this clip moves it, so it stands where the file put
+            # it — at every frame, which is worth working out once.
+            still = self._still.get(model.id)
+            if still is None:
+                still = self._still[model.id] = shape.still()
+            return still
 
         def value(prop: str, fallback, index: int) -> float:
             channels = driven.get(prop)
@@ -217,21 +250,16 @@ class Animated:
                 return channels[letter].at(time, fallback[index])
             return fallback[index]
 
-        def vector(prop: str, default) -> Tuple[float, float, float]:
-            static = node.property70(prop)
-            if isinstance(static, (list, tuple)) and len(static) >= 3:
-                fallback = [float(static[0]), float(static[1]), float(static[2])]
-            else:
-                fallback = list(default)
-            return (value(prop, fallback, 0), value(prop, fallback, 1), value(prop, fallback, 2))
+        def vector(prop: str, fallback) -> Tuple[float, float, float]:
+            return (value(prop, fallback, 0), value(prop, fallback, 1),
+                    value(prop, fallback, 2))
 
-        # The same nine-part chain a standing-still node gets, so a pose and a
-        # bind pose can never disagree about how a node is put together.
-        return compose(
-            node,
-            vector("Lcl Translation", (0.0, 0.0, 0.0)),
-            vector("Lcl Rotation", (0.0, 0.0, 0.0)),
-            vector("Lcl Scaling", (1.0, 1.0, 1.0)),
+        # The same chain a standing-still node gets, so a pose and a bind pose
+        # can never disagree about how a node is put together.
+        return shape.at(
+            vector("Lcl Translation", shape.translation),
+            vector("Lcl Rotation", shape.rotation),
+            vector("Lcl Scaling", shape.scaling),
         )
 
 
@@ -306,21 +334,28 @@ def _global_at(
     model_id: int,
     time: int,
     cache: Dict[int, List[float]],
+    root: List[float] = IDENTITY,
 ) -> List[float]:
+    """Where a node is at ``time``, in the space ``root`` puts the world in.
+
+    ``root`` is what a node with no parent is multiplied by, and the axis fix
+    is handed in there rather than multiplied onto every bone afterwards: it
+    is the same answer and one product per bone per frame fewer.
+    """
     known = cache.get(model_id)
     if known is not None:
         return known
 
     model = scene.objects.get(model_id)
     if model is None or model.kind != "Model":
-        return list(IDENTITY)
+        return list(root)
 
-    cache[model_id] = list(IDENTITY)  # break a cycle before recursing
+    cache[model_id] = list(root)  # break a cycle before recursing
     parents = scene.parents_of(model_id, "Model")
     parent = (
-        _global_at(scene, animated, parents[0].id, time, cache)
+        _global_at(scene, animated, parents[0].id, time, cache, root)
         if parents
-        else IDENTITY
+        else root
     )
     result = multiply(animated.local(scene, model, time), parent)
     cache[model_id] = result
@@ -360,27 +395,36 @@ def bake(
     frames = max(2, min(MAX_FRAMES, int(round(seconds * SAMPLE_FPS)) + 1))
     step = (last - first) / (frames - 1)
 
-    tracks = []
+    # What does not depend on the frame, worked out before the frames start:
+    # a mesh's own undoing, and each cluster's half of the product. Both were
+    # being recomputed at every one of three hundred frames.
+    tracks: List[Optional[List[float]]] = []
+    work = []
     for mesh in meshes:
         clusters = mesh.get("clusters") or []
         if not clusters:
             tracks.append(None)
+            work.append(None)
             continue
-
-        # Every frame's matrices for this mesh, laid end to end.
-        matrices: List[float] = []
         before = invert(multiply(mesh["placement_no_fix"], fix))
-        for frame in range(frames):
-            time = int(first + step * frame)
-            cache: Dict[int, List[float]] = {}
-            for cluster in clusters:
-                bone = _global_at(scene, animated, cluster.bone_id, time, cache)
-                skin = multiply(
-                    multiply(before, cluster.transform),
-                    multiply(bone, fix),
-                )
-                matrices.extend(skin)
+        matrices: List[float] = []
         tracks.append(matrices)
+        work.append((matrices, [(cluster.bone_id, multiply(before, cluster.transform))
+                                for cluster in clusters]))
+
+    # Frames outside, meshes inside, because where the bones are at a moment is
+    # a fact about the moment: with the loops the other way round a skeleton
+    # shared by nine meshes was walked nine times over.
+    for frame in range(frames):
+        time = int(first + step * frame)
+        cache: Dict[int, List[float]] = {}
+        for entry in work:
+            if entry is None:
+                continue
+            matrices, prepared = entry
+            for bone_id, half in prepared:
+                bone = _global_at(scene, animated, bone_id, time, cache, fix)
+                matrices.extend(multiply(half, bone))
 
     return {
         "name": stack.name or "(unnamed)",

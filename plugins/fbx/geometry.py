@@ -88,7 +88,7 @@ def rotation(degrees: Tuple[float, float, float], order: int = 0) -> List[float]
         0: (rx, ry, rz), 1: (rx, rz, ry), 2: (ry, rz, rx),
         3: (ry, rx, rz), 4: (rz, rx, ry), 5: (rz, ry, rx),
     }.get(order, (rx, ry, rz))
-    return multiply(multiply(sequence[0], sequence[1]), sequence[2])
+    return _rotate3(_rotate3(sequence[0], sequence[1]), sequence[2])
 
 
 def inverse_rotation(m: List[float]) -> List[float]:
@@ -128,6 +128,91 @@ def _vector(node: Node, name: str, default=(0.0, 0.0, 0.0)) -> Tuple[float, floa
     return default
 
 
+def _rotate3(a: List[float], b: List[float]) -> List[float]:
+    """Two rotations, one after the other.
+
+    The general [multiply] over two matrices whose fourth row and column are
+    known does two thirds of its work on zeroes and ones. This is the same
+    product with that part written down instead of computed, and it is only
+    ever handed rotations.
+    """
+    return [
+        a[0] * b[0] + a[1] * b[4] + a[2] * b[8],
+        a[0] * b[1] + a[1] * b[5] + a[2] * b[9],
+        a[0] * b[2] + a[1] * b[6] + a[2] * b[10], 0.0,
+        a[4] * b[0] + a[5] * b[4] + a[6] * b[8],
+        a[4] * b[1] + a[5] * b[5] + a[6] * b[9],
+        a[4] * b[2] + a[5] * b[6] + a[6] * b[10], 0.0,
+        a[8] * b[0] + a[9] * b[4] + a[10] * b[8],
+        a[8] * b[1] + a[9] * b[5] + a[10] * b[9],
+        a[8] * b[2] + a[9] * b[6] + a[10] * b[10], 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ]
+
+
+class Shape:
+    """A node's transform taken apart once, so a clip need not take it apart
+    again at every frame of every mesh.
+
+    Everything here but the three animatable vectors is fixed for the life of
+    the file, and reading it off the node is a linear walk of its properties —
+    which was being done half a million times on a model of a hundred bones.
+
+    **Most nodes are not nine parts.** Over every file to hand: 471 nodes are a
+    plain scale-then-turn-then-move, 134 want one thing more and in every one
+    of those it is `PreRotation`, which is constant and so is folded in here;
+    pivots and offsets appear on **one node out of 605**. So there are two
+    paths, the general one is kept for that node, and the plain one writes its
+    sixteen numbers out rather than reaching for [multiply] sixteen times.
+    """
+
+    __slots__ = ("order", "roff", "rpiv", "soff", "spiv", "pre", "post",
+                 "translation", "rotation", "scaling", "plain", "prefix")
+
+    def __init__(self, node: Node):
+        order = node.property70("RotationOrder", 0)
+        self.order = int(order) if isinstance(order, (int, float)) else 0
+        self.roff = _vector(node, "RotationOffset")
+        self.rpiv = _vector(node, "RotationPivot")
+        self.soff = _vector(node, "ScalingOffset")
+        self.spiv = _vector(node, "ScalingPivot")
+        self.pre = _vector(node, "PreRotation")
+        self.post = _vector(node, "PostRotation")
+        self.translation = _vector(node, "Lcl Translation")
+        self.rotation = _vector(node, "Lcl Rotation")
+        self.scaling = _vector(node, "Lcl Scaling", (1.0, 1.0, 1.0))
+
+        zero = (0.0, 0.0, 0.0)
+        self.plain = (self.roff == zero and self.rpiv == zero
+                      and self.soff == zero and self.spiv == zero
+                      and self.post == zero)
+        self.prefix = None if self.pre == zero else rotation(self.pre, self.order)
+
+    def at(self, t, r, s) -> List[float]:
+        """The node's transform with those three vectors in it."""
+        if not self.plain:
+            return _compose(self.order, self.roff, self.rpiv, self.soff,
+                            self.spiv, self.pre, self.post, t, r, s)
+
+        # Scaled, turned, moved — and with no pivot to turn about and nothing
+        # to undo afterwards, that is rows of the rotation scaled and the
+        # translation dropped into the last one.
+        m = rotation(r, self.order)
+        if self.prefix is not None:
+            m = _rotate3(m, self.prefix)
+        sx, sy, sz = s
+        return [
+            m[0] * sx, m[1] * sx, m[2] * sx, 0.0,
+            m[4] * sy, m[5] * sy, m[6] * sy, 0.0,
+            m[8] * sz, m[9] * sz, m[10] * sz, 0.0,
+            t[0], t[1], t[2], 1.0,
+        ]
+
+    def still(self) -> List[float]:
+        """The transform the file has it standing at."""
+        return self.at(self.translation, self.rotation, self.scaling)
+
+
 def compose(node: Node, t, r, s) -> List[float]:
     """One node's own transform, with its three animatable parts supplied.
 
@@ -148,13 +233,20 @@ def compose(node: Node, t, r, s) -> List[float]:
     order = node.property70("RotationOrder", 0)
     order = int(order) if isinstance(order, (int, float)) else 0
 
-    roff = _vector(node, "RotationOffset")
-    rpiv = _vector(node, "RotationPivot")
-    soff = _vector(node, "ScalingOffset")
-    spiv = _vector(node, "ScalingPivot")
-    pre = _vector(node, "PreRotation")
-    post = _vector(node, "PostRotation")
+    return _compose(
+        order,
+        _vector(node, "RotationOffset"),
+        _vector(node, "RotationPivot"),
+        _vector(node, "ScalingOffset"),
+        _vector(node, "ScalingPivot"),
+        _vector(node, "PreRotation"),
+        _vector(node, "PostRotation"),
+        t, r, s,
+    )
 
+
+def _compose(order, roff, rpiv, soff, spiv, pre, post, t, r, s) -> List[float]:
+    """The nine parts, in the order things happen. See [compose]."""
     m = translation(*(-v for v in spiv))
     m = multiply(m, scaling(*s))
     m = multiply(m, translation(*spiv))

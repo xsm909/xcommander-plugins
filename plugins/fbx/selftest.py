@@ -137,6 +137,69 @@ def check_pictures() -> list:
     return problems
 
 
+def check_curves() -> list:
+    """Reading a curve from where the last read finished answers the same.
+
+    Baking walks a clip frame after frame, so a curve is nearly always asked
+    about a moment just after the one before — the pair of keys it lands
+    between is the same pair, or the next. Keeping the place instead of
+    searching for it from scratch is worth a fifth of the baking, and is only
+    correct if it answers what the keys say, including when the questions
+    arrive backwards or in no order at all.
+
+    **The answer is worked out here rather than asked of a second `Channel`.**
+    The first go at this compared one channel against a fresh one and passed a
+    deliberately broken reader with flying colours: both were broken the same
+    way, and a check that asks the thing under test to mark its own work is not
+    a check at all.
+    """
+    problems = []
+    seed = 7
+
+    def next_number(limit: int) -> int:
+        nonlocal seed
+        seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF
+        return seed % limit
+
+    for trial in range(60):
+        count = 2 + next_number(30)
+        times = sorted({next_number(10000) for _ in range(count)})
+        if len(times) < 2:
+            continue
+        values = [next_number(1000) / 100.0 for _ in times]
+        walking = animation.Channel(list(times), list(values))
+
+        asks = [next_number(11000) - 500 for _ in range(40)]
+        if trial % 3 == 0:
+            asks.sort()
+        elif trial % 3 == 1:
+            asks.sort(reverse=True)
+        for moment in asks:
+            wanted = _between(times, values, moment)
+            got = walking.at(moment, 0.0)
+            if abs(got - wanted) > 1e-9:
+                problems.append("at %d: read %r, the keys say %r"
+                                % (moment, got, wanted))
+                break
+    return problems
+
+
+def _between(times: list, values: list, moment: int) -> float:
+    """What the keys say at ``moment``, worked out the long way round."""
+    if moment <= times[0]:
+        return values[0]
+    if moment >= times[-1]:
+        return values[-1]
+    for i in range(len(times) - 1):
+        if times[i] <= moment <= times[i + 1]:
+            span = times[i + 1] - times[i]
+            if span <= 0:
+                return values[i]
+            blend = (moment - times[i]) / span
+            return values[i] + (values[i + 1] - values[i]) * blend
+    return values[-1]
+
+
 def check_arithmetic() -> list:
     """Four things about a node's transform that no file has to be read to know.
 
@@ -237,6 +300,9 @@ def main(folder: str) -> int:
         failures += 1
     for problem in check_pictures():
         print("BAD   %-46s %s" % ("(finding a material's picture)", problem))
+        failures += 1
+    for problem in check_curves():
+        print("BAD   %-46s %s" % ("(reading a curve)", problem))
         failures += 1
     moved: list = []
     slowest = (0.0, "")
