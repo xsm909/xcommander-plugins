@@ -38,7 +38,7 @@ import struct
 from typing import Dict, List, Optional, Tuple
 
 from fbxfile import Node
-from scene import Obj, Scene
+from scene import Obj, Scene, polygon_counts
 
 # -- 4x4 matrices, row-major, as flat lists of 16 ----------------------------
 
@@ -214,30 +214,43 @@ class _Layer:
     The four ways of saying it are the same for every layer FBX has, so they
     are answered once here: a value may be given per vertex or per polygon
     corner, and either directly or through a table of indices.
+
+    Which of the four it is is settled in the constructor rather than at every
+    corner. This is asked twice per corner of every polygon in the file — a
+    million times over on a model of any size — so what it must not do is work
+    out again, each time, what it worked out at the start.
     """
+
+    __slots__ = ("values", "indices", "mapping", "reference", "width",
+                 "usable", "_by_vertex", "_indexed", "_limit")
 
     def __init__(self, layer: Optional[Node], name: str, width: int):
         self.values, self.indices, self.mapping, self.reference = _layer_values(layer, name)
         self.width = width
-        self.usable = bool(self.values)
+        self._by_vertex = self.mapping in ("ByVertice", "ByVertex")
+        self._indexed = self.reference in ("IndexToDirect", "Index")
+        self._limit = len(self.values) - width + 1
+        self.usable = bool(self.values) and (
+            self._by_vertex or self.mapping == "ByPolygonVertex"
+        )
 
     def at(self, corner: int, vertex: int) -> Optional[Tuple[float, ...]]:
         if not self.usable:
             return None
-        if self.mapping == "ByVertice" or self.mapping == "ByVertex":
-            key = vertex
-        elif self.mapping == "ByPolygonVertex":
-            key = corner
-        else:
-            return None
-        if self.reference in ("IndexToDirect", "Index"):
+        key = vertex if self._by_vertex else corner
+        if self._indexed:
             if key >= len(self.indices):
                 return None
             key = self.indices[key]
         base = key * self.width
-        if base + self.width - 1 >= len(self.values):
+        if base < 0 or base >= self._limit:
             return None
-        return tuple(self.values[base + i] for i in range(self.width))
+        values = self.values
+        if self.width == 3:
+            return (values[base], values[base + 1], values[base + 2])
+        if self.width == 2:
+            return (values[base], values[base + 1])
+        return tuple(values[base + i] for i in range(self.width))
 
 
 class _Normals(_Layer):
@@ -309,17 +322,21 @@ class MeshBuilder:
 
     def corner(self, position: Tuple[float, float, float], normal: Tuple[float, float, float],
                uv: Tuple[float, float], source: int = -1) -> int:
-        # Rounded, because two corners of the same seam differ in the last bit
-        # and sharing them is the difference between 50 000 vertices and 12 000.
+        # Cut to a grid, because two corners of the same seam differ in the
+        # last bit and sharing them is the difference between 50 000 vertices
+        # and 12 000. By multiplying rather than by `round(x, 5)`: this is the
+        # single hottest line in the plugin — eight of them per corner of every
+        # polygon in the file — and the two-argument `round` is the slow one.
         #
         # The picture coordinates are in the key too, and have to be: a seam in
         # the unwrapping is two corners in the same place facing the same way
         # and reading from opposite edges of the picture. Share those and the
         # whole picture is dragged across the model between them.
         key = (
-            round(position[0], 5), round(position[1], 5), round(position[2], 5),
-            round(normal[0], 3), round(normal[1], 3), round(normal[2], 3),
-            round(uv[0], 5), round(uv[1], 5),
+            int(position[0] * 100000), int(position[1] * 100000),
+            int(position[2] * 100000),
+            int(normal[0] * 1000), int(normal[1] * 1000), int(normal[2] * 1000),
+            int(uv[0] * 100000), int(uv[1] * 100000),
         )
         index = self._seen.get(key)
         if index is None:
@@ -585,7 +602,18 @@ def meshes(scene: Scene, max_triangles: int = 400000) -> Tuple[List[dict], dict]
                 "picture": surface["picture"] if surface else None,
             })
 
-    return out, {"droppedMeshes": dropped, "triangles": total}
+    note = {"droppedMeshes": dropped, "triangles": total, "held": total}
+    if dropped:
+        # What the file actually holds, so that what is shown can say what it
+        # is a part of. Counted only when something was left out — it is a
+        # second pass over every polygon in the file, and on a model small
+        # enough to draw whole there is nothing to say.
+        note["held"] = sum(
+            polygon_counts(geometry.node)[2]
+            for geometry in scene.of_kind("Geometry")
+            if geometry.subkind in ("Mesh", "")
+        )
+    return out, note
 
 
 def pack_floats(values: List[float]) -> bytes:

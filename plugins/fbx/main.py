@@ -190,7 +190,7 @@ def _skin(scene, parts: list, fix: list) -> dict:
     return {"clips": clips}
 
 
-def mesh3d(meshes: list, up_axis: str, unit_scale: float, triangles: int,
+def mesh3d(meshes: list, up_axis: str, unit_scale: float, note: dict,
            clips: list, images: list) -> dict:
     """The content the host draws.
 
@@ -198,11 +198,19 @@ def mesh3d(meshes: list, up_axis: str, unit_scale: float, triangles: int,
     twenty thousand triangles is a quarter of a million numbers, and written
     out as digits that is megabytes of text to parse before anything appears.
     """
+    held = note.get("held", note["triangles"])
+    short = held > note["triangles"]
     return {
         "kind": "mesh3d",
         "upAxis": up_axis,
         "unitScale": unit_scale,
-        "triangles": triangles,
+        "triangles": note["triangles"],
+        # A preview that quietly shows a third of a model is a preview that
+        # lies. There is a cap, it is reached by real files, and when it is
+        # reached the view has to be able to say so.
+        "truncated": short,
+        "detail": ("%s of the file's %s triangles"
+                   % (thousands(note["triangles"]), thousands(held))) if short else "",
         "clips": [
             {
                 "name": clip["name"],
@@ -223,7 +231,12 @@ def mesh3d(meshes: list, up_axis: str, unit_scale: float, triangles: int,
                 "color": mesh["color"],
                 #: Which of `images` this mesh is painted with, or −1 for none.
                 "image": mesh.get("image", -1),
-                "uvs": _b64_floats(mesh.get("uvs") or []),
+                # Only where there is a picture to read: on a model with none
+                # they are eight bytes a vertex saying nothing, and on a
+                # faceted one — where no two corners are ever shared — that is
+                # a fifth of everything sent.
+                "uvs": _b64_floats(mesh["uvs"]) if mesh.get("image", -1) >= 0
+                       and mesh.get("uvs") else "",
                 "joints": len(mesh.get("clusters") or []),
                 "jointIndices": base64.b64encode(
                     struct.pack("<%dH" % len(mesh.get("jointIndices") or []),
@@ -262,7 +275,7 @@ def model(url: str) -> dict:
 
     images = _pictures(url, parts)
     skinned = _skin(scene, parts, geometry._axis_fix(scene))
-    return mesh3d(parts, scene.up_axis(), scene.unit_scale(), note["triangles"],
+    return mesh3d(parts, scene.up_axis(), scene.unit_scale(), note,
                   skinned["clips"], images)
 
 
