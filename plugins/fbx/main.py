@@ -34,7 +34,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import base64  # noqa: E402
+import hashlib  # noqa: E402
 import struct  # noqa: E402
+from urllib.parse import quote  # noqa: E402
 
 from xcommander import Plugin, error, markdown  # noqa: E402
 
@@ -79,6 +81,79 @@ def _b64_floats(values) -> str:
     return base64.b64encode(geometry.pack_floats(values)).decode("ascii")
 
 
+#: Pictures are sent whole, and a model with a 4K texture on every material
+#: would otherwise put tens of megabytes through a pipe meant for a preview.
+MAX_PICTURE_BYTES = 16 << 20
+
+
+def _beside(url: str, relative: str) -> str:
+    """The URL of a file named relative to the one being read.
+
+    A texture that is not in the file is named the way the machine that wrote
+    the file saw it — `..\\textures\\skin.png`, or an absolute path on a disk
+    that belongs to somebody else. Only the relative form is followed, and only
+    downwards from the folder the FBX is in; the name on its own is tried too,
+    because a `.fbm` folder an exporter promised is very often not there.
+    """
+    folder = url.rsplit("/", 1)[0] if "/" in url else url
+    return folder + "/" + quote(relative.lstrip("./"))
+
+
+def _pictures(url: str, parts: list) -> list:
+    """Every bitmap the meshes want, read once, and each mesh told which.
+
+    Two meshes made of one material share one picture; a file that carries its
+    own bitmaps needs nothing read at all.
+    """
+    images: list = []
+    known: dict = {}
+    spent = 0
+
+    for mesh in parts:
+        mesh["image"] = -1
+        picture = mesh.get("picture")
+        if not picture:
+            continue
+
+        data = picture.get("bytes")
+        name = picture.get("name") or picture.get("beside") or ""
+        if data is None:
+            wanted = picture.get("beside") or ""
+            if not wanted:
+                continue
+            # As written, then by its bare name in the same folder as the FBX.
+            tries = [wanted]
+            if "/" in wanted:
+                tries.append(wanted.rsplit("/", 1)[1])
+            for attempt in tries:
+                try:
+                    data = plugin.read_file(_beside(url, attempt),
+                                            max_bytes=MAX_PICTURE_BYTES - spent)
+                except Exception:  # noqa: BLE001 - a missing texture is not a crash
+                    data = None
+                if data:
+                    name = attempt
+                    break
+            if not data:
+                continue
+
+        key = hashlib.sha1(data).hexdigest()
+        if key in known:
+            mesh["image"] = known[key]
+            continue
+        if spent + len(data) > MAX_PICTURE_BYTES:
+            continue
+        spent += len(data)
+        known[key] = len(images)
+        mesh["image"] = len(images)
+        images.append({
+            "name": name.rsplit("/", 1)[-1],
+            "data": base64.b64encode(data).decode("ascii"),
+        })
+
+    return images
+
+
 def _skin(scene, parts: list, fix: list) -> dict:
     """Weights per vertex and a matrix per joint per frame, for every clip.
 
@@ -116,7 +191,7 @@ def _skin(scene, parts: list, fix: list) -> dict:
 
 
 def mesh3d(meshes: list, up_axis: str, unit_scale: float, triangles: int,
-           clips: list) -> dict:
+           clips: list, images: list) -> dict:
     """The content the host draws.
 
     Numbers travel as packed binary rather than as JSON arrays: a mesh of
@@ -141,10 +216,14 @@ def mesh3d(meshes: list, up_axis: str, unit_scale: float, triangles: int,
             }
             for clip in clips
         ],
+        "images": images,
         "meshes": [
             {
                 "name": mesh["name"],
                 "color": mesh["color"],
+                #: Which of `images` this mesh is painted with, or −1 for none.
+                "image": mesh.get("image", -1),
+                "uvs": _b64_floats(mesh.get("uvs") or []),
                 "joints": len(mesh.get("clusters") or []),
                 "jointIndices": base64.b64encode(
                     struct.pack("<%dH" % len(mesh.get("jointIndices") or []),
@@ -181,9 +260,10 @@ def model(url: str) -> dict:
             "carry — a skeleton and its animation, most likely."
         )
 
+    images = _pictures(url, parts)
     skinned = _skin(scene, parts, geometry._axis_fix(scene))
     return mesh3d(parts, scene.up_axis(), scene.unit_scale(), note["triangles"],
-                  skinned["clips"])
+                  skinned["clips"], images)
 
 
 @plugin.viewer("fbx.contents", "FBX contents", extensions=["fbx"], priority=10)

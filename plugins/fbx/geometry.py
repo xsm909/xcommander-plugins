@@ -208,16 +208,20 @@ def _layer_values(layer: Optional[Node], name: str) -> Tuple[List[float], List[i
     return values, indices, mapping, reference
 
 
-class _Normals:
-    """Answers "what is the normal at this corner", however the file said it."""
+class _Layer:
+    """A per-corner layer, however the file chose to say it.
 
-    def __init__(self, geometry: Node):
-        self.values, self.indices, self.mapping, self.reference = _layer_values(
-            geometry.find("LayerElementNormal"), "Normals"
-        )
+    The four ways of saying it are the same for every layer FBX has, so they
+    are answered once here: a value may be given per vertex or per polygon
+    corner, and either directly or through a table of indices.
+    """
+
+    def __init__(self, layer: Optional[Node], name: str, width: int):
+        self.values, self.indices, self.mapping, self.reference = _layer_values(layer, name)
+        self.width = width
         self.usable = bool(self.values)
 
-    def at(self, corner: int, vertex: int) -> Optional[Tuple[float, float, float]]:
+    def at(self, corner: int, vertex: int) -> Optional[Tuple[float, ...]]:
         if not self.usable:
             return None
         if self.mapping == "ByVertice" or self.mapping == "ByVertex":
@@ -230,10 +234,50 @@ class _Normals:
             if key >= len(self.indices):
                 return None
             key = self.indices[key]
-        base = key * 3
-        if base + 2 >= len(self.values):
+        base = key * self.width
+        if base + self.width - 1 >= len(self.values):
             return None
-        return (self.values[base], self.values[base + 1], self.values[base + 2])
+        return tuple(self.values[base + i] for i in range(self.width))
+
+
+class _Normals(_Layer):
+    """Answers "what is the normal at this corner"."""
+
+    def __init__(self, geometry: Node):
+        super().__init__(geometry.find("LayerElementNormal"), "Normals", 3)
+
+
+class _UVs(_Layer):
+    """Answers "where in the picture is this corner"."""
+
+    def __init__(self, geometry: Node):
+        super().__init__(geometry.find("LayerElementUV"), "UV", 2)
+
+
+class _Slots:
+    """Which of the model's materials a given polygon is made of.
+
+    Two shapes, and the corpus has both: one material for the whole mesh
+    (``AllSame``) and one named per polygon (``ByPolygon``). Anything else is
+    read as "all of it is the first", which is what a mesh with no material
+    layer at all gets too.
+    """
+
+    def __init__(self, geometry: Node):
+        layer = geometry.find("LayerElementMaterial")
+        self.values, _indices, self.mapping, _reference = _layer_values(layer, "Materials")
+        self.per_polygon = self.mapping == "ByPolygon"
+
+    def at(self, polygon: int) -> int:
+        if not self.values:
+            return 0
+        if self.per_polygon:
+            if polygon >= len(self.values):
+                return 0
+            slot = self.values[polygon]
+        else:
+            slot = self.values[0]
+        return int(slot) if isinstance(slot, (int, float)) and slot >= 0 else 0
 
 
 # -- meshes ------------------------------------------------------------------
@@ -252,6 +296,9 @@ class MeshBuilder:
     def __init__(self):
         self.positions: List[float] = []
         self.normals: List[float] = []
+        #: Two per vertex, and always present — a mesh with no picture on it
+        #: ships zeroes rather than a second shape for the host to know about.
+        self.uvs: List[float] = []
         self.indices: List[int] = []
         #: Which vertex of the *file* each of ours came from. Sharing corners
         #: renumbers everything, and skin weights are given against the
@@ -261,12 +308,18 @@ class MeshBuilder:
         self._seen: Dict[tuple, int] = {}
 
     def corner(self, position: Tuple[float, float, float], normal: Tuple[float, float, float],
-               source: int = -1) -> int:
+               uv: Tuple[float, float], source: int = -1) -> int:
         # Rounded, because two corners of the same seam differ in the last bit
         # and sharing them is the difference between 50 000 vertices and 12 000.
+        #
+        # The picture coordinates are in the key too, and have to be: a seam in
+        # the unwrapping is two corners in the same place facing the same way
+        # and reading from opposite edges of the picture. Share those and the
+        # whole picture is dragged across the model between them.
         key = (
             round(position[0], 5), round(position[1], 5), round(position[2], 5),
             round(normal[0], 3), round(normal[1], 3), round(normal[2], 3),
+            round(uv[0], 5), round(uv[1], 5),
         )
         index = self._seen.get(key)
         if index is None:
@@ -274,6 +327,7 @@ class MeshBuilder:
             self._seen[key] = index
             self.positions.extend(position)
             self.normals.extend(normal)
+            self.uvs.extend(uv)
             self.sources.append(source)
         return index
 
@@ -309,6 +363,64 @@ def _colour_of(scene: Scene, model_id: int) -> str:
                 max(0, min(255, int(round(float(c) * 255)))) for c in value[:3]
             )
     return ""
+
+
+#: Which property of a material a texture has to be plugged into to be the one
+#: the model is coloured by. Everything else a file hangs off a material —
+#: bumps, roughness, specular — is not a preview's business.
+_COLOUR_PROPERTIES = ("DiffuseColor", "Maya|baseColor", "BaseColor", "3dsMax|Parameters|base_color")
+
+
+def _picture_of(scene: Scene, material: Obj) -> Optional[dict]:
+    """The bitmap a material is coloured from, as far as the file goes.
+
+    Either the bytes themselves, when the file carries them, or the name of a
+    file to look for beside it. Which of the two it is is left to the caller,
+    because reading a second file is the host's business and this module has no
+    way to ask.
+    """
+    for child_id, prop in scene.properties.get(material.id, ()):
+        if prop not in _COLOUR_PROPERTIES:
+            continue
+        texture = scene.objects.get(child_id)
+        if texture is None or texture.kind != "Texture":
+            continue
+        clips = [texture] + scene.children_of(texture.id, "Video")
+        for clip in clips:
+            content = clip.node.value("Content")
+            if isinstance(content, (bytes, bytearray)) and len(content) > 0:
+                return {"bytes": bytes(content), "name": str(clip.node.value("RelativeFilename") or "")}
+        for clip in clips:
+            relative = clip.node.value("RelativeFilename")
+            absolute = clip.node.value("FileName") or clip.node.value("Filename")
+            if isinstance(relative, str) and relative:
+                return {"beside": relative.replace("\\", "/"),
+                        "absolute": absolute if isinstance(absolute, str) else ""}
+    return None
+
+
+def surfaces(scene: Scene, model_id: int) -> List[dict]:
+    """The model's materials, in the order the polygons index them by.
+
+    The order is the order the connections were written in, which is what a
+    ``LayerElementMaterial`` slot counts along — not the order the objects
+    happen to sit in the file.
+    """
+    out = []
+    for material in scene.children_of(model_id, "Material"):
+        value = material.node.property70("DiffuseColor")
+        colour = ""
+        if isinstance(value, (list, tuple)) and len(value) >= 3:
+            colour = "#%02X%02X%02X" % tuple(
+                max(0, min(255, int(round(float(c) * 255)))) for c in value[:3]
+            )
+        out.append({
+            "id": material.id,
+            "name": material.name,
+            "color": colour,
+            "picture": _picture_of(scene, material),
+        })
+    return out
 
 
 def _axis_fix(scene: Scene) -> List[float]:
@@ -364,8 +476,22 @@ def meshes(scene: Scene, max_triangles: int = 400000) -> Tuple[List[dict], dict]
         placement = multiply(unfixed, fix)
 
         normals = _Normals(geometry.node)
-        builder = MeshBuilder()
+        uvs = _UVs(geometry.node)
+        slots = _Slots(geometry.node)
+        skins = scene.children_of(geometry.id, "Deformer")
+        # One builder per material the polygons actually ask for. A picture is
+        # one shader per drawing call, so a mesh made of two materials has to
+        # arrive as two meshes; splitting it here rather than in the host keeps
+        # the host's list of meshes the only thing it has to know about.
+        #
+        # A skinned mesh is never split: the weights are given against one
+        # vertex numbering, and cutting that in two would need the influences
+        # renumbered per part for a case — several materials on one skin — that
+        # no file in the corpus has.
+        builders: Dict[int, MeshBuilder] = {}
+        one_piece = bool(skins)
         polygon: List[Tuple[int, int]] = []
+        polygons = 0
         triangles = 0
 
         for position, raw in enumerate(corners):
@@ -374,6 +500,8 @@ def meshes(scene: Scene, max_triangles: int = 400000) -> Tuple[List[dict], dict]
             if raw >= 0:
                 continue
 
+            slot = 0 if one_piece else slots.at(polygons)
+            polygons += 1
             triangles += max(0, len(polygon) - 2)
             if total + triangles > max_triangles:
                 dropped += 1
@@ -394,7 +522,13 @@ def meshes(scene: Scene, max_triangles: int = 400000) -> Tuple[List[dict], dict]
                     direction = _normalise(*transform_direction(placement, *given))
                 else:
                     direction = None
-                placed.append((point, direction, vertex_index))
+                # A picture's second coordinate runs up from the bottom in
+                # FBX and down from the top in every image the host will
+                # draw, so it is turned over once, here, where the file's
+                # conventions are already being undone.
+                said = uvs.at(corner_index, vertex_index)
+                picture = (said[0], 1.0 - said[1]) if said is not None else (0.0, 0.0)
+                placed.append((point, direction, picture, vertex_index))
 
             if any(entry is None for entry in placed) or len(placed) < 3:
                 polygon = []
@@ -411,32 +545,45 @@ def meshes(scene: Scene, max_triangles: int = 400000) -> Tuple[List[dict], dict]
                 face = _normalise(
                     uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
                 )
-                placed = [(point, face, source) for point, _, source in placed]
+                placed = [(point, face, picture, source)
+                          for point, _, picture, source in placed]
 
+            builder = builders.get(slot)
+            if builder is None:
+                builder = builders[slot] = MeshBuilder()
             fan = [
-                builder.corner(point, direction, source)
-                for point, direction, source in placed
+                builder.corner(point, direction, picture, source)
+                for point, direction, picture, source in placed
             ]
             for i in range(1, len(fan) - 1):
                 builder.triangle(fan[0], fan[i], fan[i + 1])
             polygon = []
 
-        if not builder.indices:
-            continue
-        total += len(builder.indices) // 3
-        out.append({
-            "name": (holder.name if holder and holder.name else geometry.name) or "(unnamed)",
-            "positions": builder.positions,
-            "normals": builder.normals,
-            "indices": builder.indices,
-            "sources": builder.sources,
-            "sourceCount": len(vertices) // 3,
-            "geometryId": geometry.id,
-            # Where the mesh was placed, before the axis fix — the skinning
-            # maths needs to undo exactly this and no more.
-            "placement_no_fix": unfixed,
-            "color": _colour_of(scene, holder.id) if holder else "",
-        })
+        made = surfaces(scene, holder.id) if holder else []
+        name = (holder.name if holder and holder.name else geometry.name) or "(unnamed)"
+        for slot in sorted(builders):
+            builder = builders[slot]
+            if not builder.indices:
+                continue
+            surface = made[slot] if 0 <= slot < len(made) else None
+            total += len(builder.indices) // 3
+            out.append({
+                "name": name if len(builders) < 2 or surface is None
+                        else "%s · %s" % (name, surface["name"] or slot),
+                "positions": builder.positions,
+                "normals": builder.normals,
+                "uvs": builder.uvs,
+                "indices": builder.indices,
+                "sources": builder.sources,
+                "sourceCount": len(vertices) // 3,
+                "geometryId": geometry.id,
+                # Where the mesh was placed, before the axis fix — the skinning
+                # maths needs to undo exactly this and no more.
+                "placement_no_fix": unfixed,
+                "color": (surface["color"] if surface else "")
+                         or (_colour_of(scene, holder.id) if holder else ""),
+                "picture": surface["picture"] if surface else None,
+            })
 
     return out, {"droppedMeshes": dropped, "triangles": total}
 

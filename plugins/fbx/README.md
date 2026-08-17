@@ -53,6 +53,29 @@ carries none — and the axis fix, so a Z-up file arrives Y-up like every other.
 Identical corners are shared: on the heaviest file here that turned 52 074
 polygon corners into 10 549 vertices.
 
+## Pictures
+
+A material's bitmap travels beside the meshes, in `images`, and each mesh says
+which of them it is painted with. Three things had to be decided rather than
+coded around:
+
+- **One picture per mesh, so a mesh of several materials is sent as several.**
+  A picture is one shader per drawing call, and cutting the mesh here rather
+  than in the host keeps the host's list of meshes the only thing it knows
+  about. A *skinned* mesh is never cut: its weights are given against one
+  vertex numbering.
+- **A file need not carry its bitmap.** Either it is in the file, as `Content`
+  on a `Video`, or it is a name to look for beside it — and then only the
+  relative form is followed, downward, plus the bare name, because the `.fbm`
+  folder an exporter promises is very often not there. Absolute paths from the
+  machine that authored the file are not chased.
+- **The second coordinate is turned over here**, once: FBX writes it running up
+  from the bottom, and every image is drawn from the top.
+
+Sharing corners has to know about it too — a seam in an unwrapping is two
+corners in the same place facing the same way and reading opposite edges of the
+picture, and sharing those drags the whole picture across the model.
+
 ## Checking it
 
 ```
