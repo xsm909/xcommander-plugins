@@ -43,7 +43,14 @@ from xcommander import Plugin, error, markdown  # noqa: E402
 import animation  # noqa: E402
 import fbxfile  # noqa: E402
 import geometry  # noqa: E402
+import gltffile  # noqa: E402
+import gltfscene  # noqa: E402
+import objfile  # noqa: E402
 from scene import Scene, summarise  # noqa: E402
+
+#: What this can be pointed at. One viewer for all of them: which format a file
+#: is, is the reader's business and nobody else's.
+MODELS = ["fbx", "glb", "gltf", "obj"]
 
 plugin = Plugin("org.xcommander.fbx", "FBX")
 
@@ -64,17 +71,81 @@ def thousands(value: int) -> str:
     return "{:,}".format(value).replace(",", " ")
 
 
+def _sibling(url: str, name: str) -> str:
+    folder = url.rsplit("/", 1)[0] if "/" in url else url
+    return folder + "/" + quote(name.lstrip("./"))
+
+
+class Model:
+    """One file, read: whichever format it is, asked the same three questions.
+
+    The whole of the difference between formats lives behind this. What comes
+    out of `meshes` is one shape of dict, so the payload, the pictures, the
+    truncation report and every line of the host are the same for all of them.
+    """
+
+    def __init__(self, url: str, data: bytes):
+        self.url = url
+        self.size = len(data)
+        head = data.lstrip()[:1]
+        if url.lower().rsplit(".", 1)[-1] == "obj":
+            self.kind = "obj"
+            self.data = data
+            self.parts = None
+        elif data[:4] == gltffile.MAGIC or head == b"{":
+            self.kind = "gltf"
+            self.document = gltffile.parse(data)
+            self.held = gltffile.Bytes(
+                self.document,
+                lambda uri: plugin.read_file(_sibling(url, uri),
+                                             max_bytes=MAX_BYTES),
+            )
+        else:
+            self.kind = "fbx"
+            self.document = fbxfile.parse(data)
+            self.scene = Scene(self.document)
+
+    def meshes(self):
+        if self.kind == "obj":
+            self.parts, note = objfile.meshes(
+                self.data,
+                lambda name: plugin.read_file(_sibling(self.url, name),
+                                              max_bytes=MAX_BYTES),
+            )
+            return self.parts, note
+        if self.kind == "gltf":
+            return gltfscene.meshes(self.document, self.held)
+        return geometry.meshes(self.scene)
+
+    def facts(self) -> dict:
+        if self.kind == "obj":
+            if self.parts is None:
+                self.meshes()
+            return objfile.summarise(self.data, self.parts or [])
+        if self.kind == "gltf":
+            return gltfscene.summarise(self.document, self.held, self.size)
+        return summarise(self.scene)
+
+    def clips(self, parts: list) -> list:
+        """What moves. OBJ has nothing that moves at all; glTF's animation is
+        not read yet, and says so by being empty rather than by pretending the
+        model is still."""
+        if self.kind in ("gltf", "obj"):
+            return []
+        return _skin(self.scene, parts, geometry._axis_fix(self.scene))["clips"]
+
+
 def _load(url: str):
     """The file, parsed, or the content that explains why not."""
     data = plugin.read_file(url, max_bytes=MAX_BYTES)
     if not data:
         return None, error("The file is empty, or could not be read.")
     try:
-        return (fbxfile.parse(data), len(data)), None
-    except fbxfile.FbxError as failure:
+        return Model(url, data), None
+    except (fbxfile.FbxError, gltffile.GltfError) as failure:
         return None, error(str(failure))
     except Exception as failure:  # noqa: BLE001 - a malformed file is not a crash
-        return None, error("This file could not be read as FBX: %s" % failure)
+        return None, error("This file could not be read as a model: %s" % failure)
 
 
 def _b64_floats(values) -> str:
@@ -304,16 +375,14 @@ def mesh3d(meshes: list, up_axis: str, unit_scale: float, note: dict,
     }
 
 
-@plugin.viewer("fbx.model", "Model", extensions=["fbx"], priority=20)
+@plugin.viewer("fbx.model", "Model", extensions=MODELS, priority=20)
 def model(url: str) -> dict:
     loaded, refusal = _load(url)
     if refusal is not None:
         return refusal
-    document, _size = loaded
 
-    scene = Scene(document)
     try:
-        parts, note = geometry.meshes(scene)
+        parts, note = loaded.meshes()
     except Exception as failure:  # noqa: BLE001 - one odd file is not a crash
         return error("The geometry in this file could not be read: %s" % failure)
 
@@ -324,25 +393,30 @@ def model(url: str) -> dict:
         )
 
     images = _pictures(url, parts)
-    skinned = _skin(scene, parts, geometry._axis_fix(scene))
-    return mesh3d(parts, scene.up_axis(), scene.unit_scale(), note,
-                  skinned["clips"], images)
+    facts = loaded.facts()
+    return mesh3d(parts, facts["upAxis"], facts["unitScale"], note,
+                  loaded.clips(parts), images)
 
 
-@plugin.viewer("fbx.contents", "FBX contents", extensions=["fbx"], priority=10)
+@plugin.viewer("fbx.contents", "What is in the file", extensions=MODELS,
+               priority=10)
 def contents(url: str) -> dict:
     loaded, refusal = _load(url)
     if refusal is not None:
         return refusal
-    document, size = loaded
-    return markdown(_report(summarise(Scene(document)), size))
+    return markdown(_report(loaded.facts(), loaded.size, loaded.kind))
 
 
-def _report(facts: dict, size: int) -> str:
+def _report(facts: dict, size: int, kind: str = "fbx") -> str:
     lines = []
 
     version = facts["version"]
-    lines.append("# FBX %d.%d" % (version // 1000, (version % 1000) // 100))
+    if kind == "gltf":
+        lines.append("# glTF 2.0")
+    elif kind == "obj":
+        lines.append("# Wavefront OBJ")
+    else:
+        lines.append("# FBX %d.%d" % (version // 1000, (version % 1000) // 100))
     lines.append("")
     lines.append("| | |")
     lines.append("| --- | --- |")

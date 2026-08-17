@@ -1,8 +1,8 @@
 {
   "id": "org.xcommander.fbx",
-  "name": "FBX",
-  "version": "0.8.0",
-  "description": "Shows an FBX: the model, shaded and turnable, playing its animation; and what the file holds — meshes, skeleton, clips and how long they run.",
+  "name": "3D",
+  "version": "0.9.0",
+  "description": "Shows a 3D model: shaded, turnable, textured, playing its animation — and what the file holds. FBX, glTF/GLB and OBJ, one viewer for all of them.",
   "category": "Viewers",
   "author": "xcommander",
   "homepage": "https://github.com/xsm909/xcommander-plugins",
@@ -21,15 +21,21 @@
       "id": "fbx.model",
       "title": "Model",
       "extensions": [
-        "fbx"
+        "fbx",
+        "glb",
+        "gltf",
+        "obj"
       ],
       "priority": 20
     },
     {
       "id": "fbx.contents",
-      "title": "FBX contents",
+      "title": "What is in the file",
       "extensions": [
-        "fbx"
+        "fbx",
+        "glb",
+        "gltf",
+        "obj"
       ],
       "priority": 10
     }
