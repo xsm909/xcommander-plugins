@@ -42,6 +42,7 @@ from xcommander import (
     cell,
     column,
     delete,
+    local_path as sdk_local_path,
     navigate,
     respond,
     row,
@@ -65,6 +66,30 @@ HEAD_BYTES = 64 * 1024
 LEAST_BYTES = 1024
 
 
+try:  # noqa: SIM105 - the host's own, where the host is new enough to have it
+    from xcommander import file_url
+except ImportError:  # pragma: no cover - a host older than 1.0.0.301
+    # **A compatibility shim, not a second implementation.** `file_url` arrived
+    # in the SDK on 2026-08-18 with the bug it fixes; a plugin is installed
+    # separately from the application, so this one can find itself running on a
+    # host that predates it, and an ImportError at the top of the file is a
+    # plugin that does not load at all. Delete this once no host without it is
+    # in use.
+    from urllib.parse import quote as _quote
+
+    def file_url(path: str) -> str:
+        if not path:
+            return "file:///"
+        if path.startswith("\\\\"):
+            rest = path[2:].replace("\\", "/")
+            server, _, inner = rest.partition("/")
+            return "file://" + _quote(server) + "/" + _quote(inner, safe="/:")
+        forward = path.replace("\\", "/")
+        if not forward.startswith("/"):
+            forward = "/" + forward
+        return "file://" + _quote(forward, safe="/:")
+
+
 def local_path(url: Optional[str]) -> Optional[str]:
     """The folder behind a `file:` url, or None for anything else.
 
@@ -75,16 +100,21 @@ def local_path(url: Optional[str]) -> Optional[str]:
     if not url:
         return None
     parsed = urlparse(url)
-    if parsed.scheme not in ("", "file"):
-        return None
-    path = unquote(parsed.path)
-    if os.name == "nt" and len(path) > 2 and path[0] == "/" and path[2] == ":":
-        path = path[1:]
-    return path
+    if parsed.scheme == "":
+        return url
+    return sdk_local_path(url)
 
 
 def url_of(path: str) -> str:
-    return "file://" + quote(path)
+    """Where the host is pointed at one of these files.
+
+    `file_url`, never `"file://" + path`: on Windows that is one slash short,
+    and the slash it is short of is what keeps the drive letter out of the
+    URL's host — so `E:/Work/x` arrives as host `E:` and path `/Work/x`, and
+    the drive is gone. Found in the git plugin on 2026-08-18 and the same line
+    was here.
+    """
+    return file_url(path)
 
 
 def human(size: float) -> str:

@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.duplicates",
   "name": "Find duplicates",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The same file kept in more than one place: sets of identical copies under a folder, biggest first, with what the extra copies are costing.",
   "category": "Tools",
   "author": "xcommander",

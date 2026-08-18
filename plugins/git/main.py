@@ -51,6 +51,7 @@ from xcommander import (
     field,
     form,
     lay_out,
+    local_path as sdk_local_path,
     page,
     Plugin,
     RpcError,
@@ -82,6 +83,30 @@ TIMEOUT = 20
 # -- talking to git -----------------------------------------------------------
 
 
+try:  # noqa: SIM105 - the host's own, where the host is new enough to have it
+    from xcommander import file_url
+except ImportError:  # pragma: no cover - a host older than 1.0.0.301
+    # **A compatibility shim, not a second implementation.** `file_url` arrived
+    # in the SDK on 2026-08-18 with the bug it fixes; a plugin is installed
+    # separately from the application, so this one can find itself running on a
+    # host that predates it, and an ImportError at the top of the file is a
+    # plugin that does not load at all. Delete this once no host without it is
+    # in use.
+    from urllib.parse import quote as _quote
+
+    def file_url(path: str) -> str:
+        if not path:
+            return "file:///"
+        if path.startswith("\\\\"):
+            rest = path[2:].replace("\\", "/")
+            server, _, inner = rest.partition("/")
+            return "file://" + _quote(server) + "/" + _quote(inner, safe="/:")
+        forward = path.replace("\\", "/")
+        if not forward.startswith("/"):
+            forward = "/" + forward
+        return "file://" + _quote(forward, safe="/:")
+
+
 def run(root: str, *args: str) -> Optional[str]:
     """One git command, or None when it failed or there is no git at all."""
     try:
@@ -104,16 +129,21 @@ def local_path(url: Optional[str]) -> Optional[str]:
     A repository is a thing on a disk. An archive or an FTP server does not
     have one, and asking git about a path it cannot see is a slow way to be
     told nothing.
+
+    **The work is the SDK's**, not a second copy of it here. The copy this
+    replaced knew about a Windows drive in the URL's *path* and nothing about
+    one in its *host*, which is the shape a hand-glued `"file://" + path`
+    produces — and that cost a bug report from Windows on 2026-08-18. A plugin
+    that reimplements half of `local_path` gets the half it happened to test.
     """
     if not url:
         return None
     parsed = urlparse(url)
-    if parsed.scheme not in ("", "file"):
-        return None
-    path = unquote(parsed.path)
-    if os.name == "nt" and len(path) > 2 and path[0] == "/" and path[2] == ":":
-        path = path[1:]
-    return path
+    if parsed.scheme == "":
+        # A bare path, which is not a URL at all but is what some of this
+        # plugin's own callers hold.
+        return url
+    return sdk_local_path(url)
 
 
 def repository_of(folder: str) -> Optional[str]:
@@ -980,7 +1010,10 @@ def tree_url(root: str, ref: str, inner: str = "") -> str:
     """
     return "git:///%s?repo=%s&ref=%s" % (
         quote(inner.strip("/")),
-        quote("file://" + root, safe=""),
+        # `file_url`, never `"file://" + root`: git prints a Windows root as
+        # `E:/Work/x`, and gluing it on leaves the URL reading `E:` as its
+        # *host*, so the drive is gone by the time anything reads it back.
+        quote(file_url(root), safe=""),
         quote(ref, safe=""),
     )
 
@@ -1309,7 +1342,7 @@ def _status_of(at: Where, path: str) -> str:
 
 def urls_of(root: str, paths: List[str]) -> List[str]:
     """Where the host is pointed when it is asked to delete something."""
-    return ["file://" + quote(os.path.join(root, path)) for path in paths]
+    return [file_url(os.path.join(root, path)) for path in paths]
 
 
 def is_untracked(work: Staging, path: str) -> bool:
@@ -1350,13 +1383,13 @@ def staging_diff(work: Staging) -> None:
 
     if status == "?":
         if looks_binary(os.path.join(work.root, path)):
-            work.shown = "file://" + quote(os.path.join(work.root, path))
+            work.shown = file_url(os.path.join(work.root, path))
             return
         work.diff = untracked_diff(work.root, path)
         return
 
     if worktree_is_binary(work.root, path):
-        work.shown = "file://" + quote(os.path.join(work.root, path))
+        work.shown = file_url(os.path.join(work.root, path))
         return
 
     if work.part == "staged":
@@ -1695,7 +1728,7 @@ def select_file(at: Where, index: int) -> None:
         if worktree_is_binary(at.root, path, untracked="?" in status):
             # On the disk, which is the version being looked at.
             at.diff = ""
-            at.shown = "file://" + quote(os.path.join(at.root, path))
+            at.shown = file_url(os.path.join(at.root, path))
             return
         at.diff = worktree_diff(at.root, status[0], (status + "  ")[1], path)
         return
