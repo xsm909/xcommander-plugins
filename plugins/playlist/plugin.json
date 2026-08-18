@@ -1,0 +1,45 @@
+{
+  "id": "org.xcommander.playlist",
+  "name": "Playlists",
+  "version": "0.1.0",
+  "description": "Opens a playlist as a folder of the tracks it names, and lists what is in it with F3. M3U, M3U8 and PLS — the three lists a music player has written since anybody had a music player.",
+  "category": "Viewers",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "list",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "schemes": [
+    "m3u"
+  ],
+  "containers": [
+    {
+      "scheme": "m3u",
+      "title": "Playlist",
+      "extensions": [
+        "m3u",
+        "m3u8",
+        "pls"
+      ]
+    }
+  ],
+  "viewers": [
+    {
+      "id": "playlist.tracks",
+      "title": "Tracks",
+      "priority": 30,
+      "extensions": [
+        "m3u",
+        "m3u8",
+        "pls"
+      ]
+    }
+  ]
+}
