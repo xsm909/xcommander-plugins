@@ -39,7 +39,7 @@
     "folder": "duplicates",
     "id": "org.xcommander.duplicates",
     "name": "Find duplicates",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "The same file kept in more than one place: sets of identical copies under a folder, biggest first, with what the extra copies are costing.",
     "runtime": "python",
     "apiVersion": 1,
@@ -51,14 +51,14 @@
     "pythonMin": "3.12",
     "category": "Tools",
     "icon": null,
-    "updated": "2026-08-14T23:56:55+02:00"
+    "updated": "2026-08-18T12:46:06+02:00"
   },
   {
     "folder": "fbx",
     "id": "org.xcommander.fbx",
-    "name": "FBX",
-    "version": "0.3.1",
-    "description": "Shows an FBX: the model, shaded and turnable, playing its animation; and what the file holds \u2014 meshes, skeleton, clips and how long they run.",
+    "name": "3D",
+    "version": "0.12.0",
+    "description": "Shows a 3D model: shaded, turnable, textured, playing its animation \u2014 and what the file holds. FBX, glTF/GLB and OBJ, one viewer for all of them.",
     "runtime": "python",
     "apiVersion": 1,
     "platforms": [
@@ -69,7 +69,7 @@
     "pythonMin": "3.12",
     "category": "Viewers",
     "icon": "view",
-    "updated": "2026-08-13T07:28:53+02:00"
+    "updated": "2026-08-17T10:16:57+02:00"
   },
   {
     "folder": "ftp",
@@ -93,7 +93,7 @@
     "folder": "git",
     "id": "org.xcommander.git",
     "name": "Git",
-    "version": "0.36.0",
+    "version": "0.36.1",
     "description": "The repository the panel is standing in, on one page: its branches, its log with the shape of the history drawn, what each commit touched and the difference itself.",
     "runtime": "python",
     "apiVersion": 1,
@@ -105,21 +105,21 @@
     "pythonMin": "3.12",
     "category": "Tools",
     "icon": "icon.png",
-    "updated": "2026-08-15T09:59:53+02:00"
+    "updated": "2026-08-18T12:46:06+02:00"
   },
   {
     "folder": "image",
     "id": "org.xcommander.builtin.image",
     "name": "Images",
-    "version": "1.0.0",
-    "description": "Displays raster images, zoomable and pannable.",
+    "version": "1.1.0",
+    "description": "Shows the pictures the machine's own decoder already reads, on a canvas with fit, 1:1 and zoom. Which of these a machine actually reads is not the same everywhere \u2014 PNG, JPEG, GIF, WebP and BMP are read anywhere the application runs, and the rest depend on what the system brings.",
     "runtime": "declarative",
     "apiVersion": 1,
     "platforms": [],
     "pythonMin": null,
     "category": "Viewers",
     "icon": null,
-    "updated": "2026-08-14T22:28:16+02:00"
+    "updated": "2026-08-17T15:20:52+02:00"
   },
   {
     "folder": "nodes",
@@ -138,6 +138,24 @@
     "category": "Viewers",
     "icon": "view",
     "updated": "2026-08-16T10:51:50+02:00"
+  },
+  {
+    "folder": "pictures",
+    "id": "org.xcommander.pictures",
+    "name": "Pictures",
+    "version": "0.4.0",
+    "description": "The raster formats the machine's own decoder will not open, and the ones it will not open here. GIMP's .xcf with its layers, masks and blend modes composited, Photoshop's .psd and .psb through the flattened copy inside them, TIFF in strips or tiles with LZW, PackBits or deflate, and Targa. What this reader cannot read is handed to the machine's own decoder rather than refused.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Viewers",
+    "icon": "image",
+    "updated": "2026-08-17T20:21:10+02:00"
   },
   {
     "folder": "smb",
@@ -176,6 +194,24 @@
     "updated": "2026-08-10T20:51:43+02:00"
   },
   {
+    "folder": "vector",
+    "id": "org.xcommander.vector",
+    "name": "Vector graphics",
+    "version": "0.4.0",
+    "description": "Drawings made of shapes, drawn as shapes rather than turned into a picture \u2014 so they stay sharp however far in you go. SVG with its text, gradients and reused shapes, and EPS by running it: a PostScript file is a program, and the drawing falls out of executing it.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Viewers",
+    "icon": "view",
+    "updated": "2026-08-17T15:20:52+02:00"
+  },
+  {
     "folder": "viewer",
     "id": "org.xcommander.builtin.viewer",
     "name": "Files as text",
@@ -187,7 +223,7 @@
     "pythonMin": null,
     "category": "Viewers",
     "icon": null,
-    "updated": "2026-08-16T10:56:43+02:00"
+    "updated": "2026-08-16T11:14:10+02:00"
   },
   {
     "folder": "web",
