@@ -45,11 +45,14 @@ import time
 import zipfile
 from typing import Callable, Iterable, List, Optional, Tuple
 
-#: How a name with no UTF-8 flag should be read.
-AUTO = "auto"
-OEM = "oem"
-WINDOWS = "windows"
-LITERAL = "literal"
+import legacynames
+
+#: How a name with no UTF-8 flag should be read. The choices, and the deciding,
+#: are shared with the tar side — see :mod:`legacynames`.
+AUTO = legacynames.AUTO
+OEM = legacynames.OEM
+WINDOWS = legacynames.WINDOWS
+LITERAL = legacynames.LITERAL
 
 #: The flag an archiver sets when it wrote the name in UTF-8.
 UTF8_FLAG = 0x800
@@ -62,30 +65,6 @@ PART = ".xcommander-part"
 
 
 # -- names -----------------------------------------------------------------
-
-
-def _plausibility(text: str) -> int:
-    """How much this reads like a file name somebody typed.
-
-    A wrongly decoded name is not usually gibberish in an obvious way — both
-    code page 866 and code page 1251 turn the same bytes into Cyrillic, just
-    into *different* Cyrillic. What separates them is the bytes either side of
-    the alphabet: 866 puts box-drawing characters there and 1251 puts currency
-    signs and stray letters, and a name holding either is a name read the wrong
-    way round. So this counts evidence rather than guessing.
-    """
-    score = 0
-    for character in text:
-        code = ord(character)
-        if character.isalnum() or character in " ._-+()[]{}#@!,;'&~":
-            score += 2
-        elif 0x2500 <= code <= 0x259F:  # box drawing and blocks
-            score -= 4
-        elif 0x00A0 <= code <= 0x00BF or code in (0x00A4, 0x00A6, 0x00A7):
-            score -= 3  # currency, section marks: 1251 reading 866's letters
-        elif code < 0x20:
-            score -= 8  # a control character is never in a name
-    return score
 
 
 def decoded_name(info: zipfile.ZipInfo, choice: str = AUTO) -> str:
@@ -107,27 +86,7 @@ def decoded_name(info: zipfile.ZipInfo, choice: str = AUTO) -> str:
         # second-guessing it would only do damage.
         return name
 
-    if choice == OEM:
-        return _decode(raw, "cp866", name)
-    if choice == WINDOWS:
-        return _decode(raw, "cp1251", name)
-
-    best, score = name, _plausibility(name)
-    for codec in ("cp866", "cp1251"):
-        candidate = _decode(raw, codec, None)
-        if candidate is None:
-            continue
-        rating = _plausibility(candidate)
-        if rating > score:
-            best, score = candidate, rating
-    return best
-
-
-def _decode(raw: bytes, codec: str, fallback: Optional[str]) -> Optional[str]:
-    try:
-        return raw.decode(codec)
-    except UnicodeDecodeError:
-        return fallback
+    return legacynames.repaired(raw, choice, name)
 
 
 def stamp(info: zipfile.ZipInfo) -> Optional[float]:

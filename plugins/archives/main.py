@@ -17,6 +17,14 @@
 
 """Archives as folders: walk into one, copy out of it, pack into it.
 
+**ZIP and tar in one plugin**, because they differ by a codec and share
+everything else — the URL, the walk, the F3 table, the refusal to write an
+archive that is not on this machine. Two plugins would be two copies of that
+machinery in two processes, since one plugin cannot import another. What each
+format *does* differ by lives in :mod:`zipbox` and :mod:`tarbox`, and the two are
+not alike: a ZIP has a directory at the end and a tar has nothing, so a tarball
+is listed by walking it and a compressed one cannot be appended to at all.
+
 **What this is not.** It is not a pack command, an unpack command, a progress
 window or a queue. An archive here is a *file system*, and everything the panels
 already know how to do with a file system therefore works on it: Enter walks in,
@@ -41,12 +49,15 @@ it open across an application that then stops.
 
 from __future__ import annotations
 
+import os
+import tarfile
 import time
 import zipfile
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlparse
 
 import hostfile
+import tarbox
 import zipbox
 from xcommander import (
     DIRECTORY,
@@ -115,6 +126,98 @@ class _Open:
             self.handle.close()
 
 
+class _ArchiveFileSystem(FileSystem):
+    """What the two formats share, which is everything but the format.
+
+    Opening an archive over the host, keeping it open while it has not changed,
+    and refusing to *write* one that is not on this machine. A subclass says how
+    to read the bytes it is handed and nothing else about any of this.
+    """
+
+    def __init__(self):
+        self._open: Dict[str, _Open] = {}
+
+    def _load(self, handle, archive_url: str):
+        """The format's own reader over an open, seekable file."""
+        raise NotImplementedError
+
+    def _reader(self, archive_url: str) -> _Open:
+        """The archive, open for reading, reused while it has not changed.
+
+        Reused because reading an archive's directory is not free — for a tar it
+        means walking the whole thing — and a panel asks for a listing on every
+        refresh. Checked because an archive is a file somebody else can change
+        under us, and a listing of what it used to be is worse than a slow one.
+        """
+        size, modified = self._measure(archive_url)
+        cached = self._open.get(archive_url)
+        now = time.monotonic()
+        if cached is not None:
+            if (
+                cached.size == size
+                and cached.modified == modified
+                and now - cached.touched < IDLE
+            ):
+                cached.touched = now
+                return cached
+            self._forget(archive_url)
+
+        handle = hostfile.opened(plugin, archive_url, size)
+        try:
+            archive = self._load(handle, archive_url)
+        except RpcError:
+            handle.close()
+            raise
+        except Exception as failure:
+            handle.close()
+            raise RpcError("Cannot read %s: %s" % (archive_url, failure))
+
+        while len(self._open) >= KEEP:
+            oldest = min(self._open, key=lambda key: self._open[key].touched)
+            self._forget(oldest)
+        opened = _Open(archive, handle, size, modified)
+        self._open[archive_url] = opened
+        return opened
+
+    def _measure(self, archive_url: str) -> Tuple[int, Optional[int]]:
+        """The archive's size and date, as the host sees them right now."""
+        stat = plugin.stat(archive_url)
+        if not stat:
+            raise RpcError("%s is not there" % archive_url)
+        size = int(stat.get("size") or 0)
+        if size <= 0:
+            raise RpcError("%s is empty" % archive_url)
+        return size, stat.get("modified")
+
+    def _forget(self, archive_url: str) -> None:
+        cached = self._open.pop(archive_url, None)
+        if cached is not None:
+            cached.close()
+
+    def _forget_all(self) -> None:
+        for archive_url in list(self._open):
+            self._forget(archive_url)
+
+    def _absent(self, archive_url: str) -> bool:
+        return not plugin.stat(archive_url)
+
+    def _writable_path(self, archive_url: str) -> str:
+        """The archive's path on this machine, or a plain refusal.
+
+        Reading goes through the host and works anywhere. Writing cannot: the
+        host serves reads to plugins, not writes, so changing an archive means
+        opening it here. Said as an error the moment it is asked for, rather
+        than by half packing something.
+        """
+        path = local_path(archive_url)
+        if not path:
+            raise RpcError(
+                "Only an archive on this machine can be written to. "
+                "%s is somewhere else — copy it here first." % archive_url
+            )
+        return path
+
+
 # -- the viewer ------------------------------------------------------------
 
 
@@ -149,7 +252,7 @@ def list_contents(url):
 # -- the file system -------------------------------------------------------
 
 
-class ArchiveFileSystem(FileSystem):
+class ZipFileSystem(_ArchiveFileSystem):
     """A ZIP read and written as a directory.
 
     Writable, with one honest limit: the archive has to be on this machine, for
@@ -163,65 +266,16 @@ class ArchiveFileSystem(FileSystem):
     icon = "archive"
 
     def __init__(self):
-        self._open: Dict[str, _Open] = {}
+        super().__init__()
         self._member: Optional[zipbox.Member] = None
         self._member_url: Optional[str] = None
         self._incoming: Dict[str, Tuple[Optional[int], Optional[float]]] = {}
 
-    # -- opening for reading ----------------------------------------------
-
-    def _reader(self, archive_url: str) -> _Open:
-        """The archive, open for reading, reused while it has not changed.
-
-        Reused because reading the central directory of a large archive is not
-        free and a panel asks for a listing on every refresh; checked because an
-        archive is a file somebody else can change under us, and a listing of
-        what it used to be is worse than a slow one.
-        """
-        size, modified = self._measure(archive_url)
-        cached = self._open.get(archive_url)
-        now = time.monotonic()
-        if cached is not None:
-            if (
-                cached.size == size
-                and cached.modified == modified
-                and now - cached.touched < IDLE
-            ):
-                cached.touched = now
-                return cached
-            self._forget(archive_url)
-
-        handle = hostfile.opened(plugin, archive_url, size)
+    def _load(self, handle, archive_url: str):
         try:
-            archive = zipbox.opened(handle)
+            return zipbox.opened(handle)
         except zipfile.BadZipFile as failure:
-            handle.close()
             raise RpcError("%s is not a readable ZIP: %s" % (archive_url, failure))
-        except Exception as failure:
-            handle.close()
-            raise RpcError("Cannot read %s: %s" % (archive_url, failure))
-
-        while len(self._open) >= KEEP:
-            oldest = min(self._open, key=lambda key: self._open[key].touched)
-            self._forget(oldest)
-        opened = _Open(archive, handle, size, modified)
-        self._open[archive_url] = opened
-        return opened
-
-    def _measure(self, archive_url: str) -> Tuple[int, Optional[int]]:
-        """The archive's size and date, as the host sees them right now."""
-        stat = plugin.stat(archive_url)
-        if not stat:
-            raise RpcError("%s is not there" % archive_url)
-        size = int(stat.get("size") or 0)
-        if size <= 0:
-            raise RpcError("%s is empty" % archive_url)
-        return size, stat.get("modified")
-
-    def _forget(self, archive_url: str) -> None:
-        cached = self._open.pop(archive_url, None)
-        if cached is not None:
-            cached.close()
 
     # -- listing ----------------------------------------------------------
 
@@ -291,26 +345,7 @@ class ArchiveFileSystem(FileSystem):
             # What zipfile raises for an encrypted member with no password.
             raise RpcError("%s cannot be read: %s" % (inner, failure))
 
-    def _absent(self, archive_url: str) -> bool:
-        return not plugin.stat(archive_url)
-
     # -- writing ----------------------------------------------------------
-
-    def _writable_path(self, archive_url: str) -> str:
-        """The archive's path on this machine, or a plain refusal.
-
-        Reading goes through the host and works anywhere. Writing cannot: the
-        host serves reads to plugins, not writes, so changing an archive means
-        opening it here. Said as an error the moment it is asked for, rather
-        than by half packing something.
-        """
-        path = local_path(archive_url)
-        if not path:
-            raise RpcError(
-                "Only an archive on this machine can be written to. "
-                "%s is somewhere else — copy it here first." % archive_url
-            )
-        return path
 
     def begin_write(
         self, url: str, size: Optional[int], modified: Optional[float]
@@ -403,21 +438,321 @@ class ArchiveFileSystem(FileSystem):
         zipbox.rewrite(path, zipbox.renaming(source_inner, target_inner), _level())
 
 
+# -- tar -------------------------------------------------------------------
+
+
+@plugin.viewer(
+    "tar.contents",
+    "Tarball contents",
+    priority=30,
+    extensions=["tar", "tgz", "tbz", "tbz2", "txz", "gz", "bz2", "xz"],
+)
+def list_tar_contents(url):
+    """F3 on a tarball: what is in it, with the mode tar bothers to keep."""
+    try:
+        opened = tars._reader(url)
+    except RpcError as failure:
+        return error(str(failure))
+
+    rows = list(tarbox.rows(opened.archive, _choice()))
+    if not rows:
+        return error("The archive is empty.")
+    count, size = tarbox.total(opened.archive)
+    plugin.log("%s: %d file(s), %d bytes" % (url, count, size))
+    return table(["Name", "Size", "Kind", "Mode", "Modified"], rows)
+
+
+class TarFileSystem(_ArchiveFileSystem):
+    """A tarball read and written as a directory.
+
+    Written through a **staging tar** beside the archive, because a compressed
+    tarball cannot be appended to: `tarfile` opens mode ``"a"`` uncompressed
+    only. Members go into a plain tar, and the archive is written once — when
+    the host says the operation has finished, or when the plugin is stopped.
+
+    While that staging tar exists it *is* the archive as far as this plugin is
+    concerned: a listing during a pack reads it, so what the panel sees is what
+    has been packed rather than what the file on disk still says.
+    """
+
+    scheme = "tar"
+    writable = True
+    icon = "archive"
+
+    def __init__(self):
+        super().__init__()
+        self._staging: Optional[tarbox.Staging] = None
+        self._member_url: Optional[str] = None
+        self._member_path: Optional[str] = None
+        self._member_handle = None
+        self._incoming: Dict[str, Tuple[Optional[int], Optional[float]]] = {}
+
+    def _load(self, handle, archive_url: str):
+        try:
+            return tarbox.opened(handle, archive_url)
+        except tarfile.ReadError as failure:
+            raise RpcError("%s is not a readable tarball: %s" % (archive_url, failure))
+
+    # -- listing ----------------------------------------------------------
+
+    def _staged(self, archive_url: str) -> Optional[tarbox.Staging]:
+        """The staging tar for this archive, if one is being built right now."""
+        staging = self._staging
+        if staging is None:
+            return None
+        path = local_path(archive_url)
+        return staging if path and path == staging.archive_path else None
+
+    def _reader(self, archive_url: str) -> _Open:
+        # A pack in progress is the truth about the archive, and it is a plain
+        # tar sitting on the disk: read that rather than the file it will
+        # become, which has not been written yet.
+        staging = self._staged(archive_url)
+        if staging is not None and os.path.exists(staging.path):
+            handle = open(staging.path, "rb")
+            try:
+                return _Open(tarbox.opened(handle, archive_url), handle, 0, None)
+            except Exception as failure:
+                handle.close()
+                raise RpcError("Cannot read what has been packed: %s" % failure)
+        return super()._reader(archive_url)
+
+    def list(self, url: str) -> List[Entry]:
+        archive_url, inner = _split(url)
+        if self._absent(archive_url) and self._staged(archive_url) is None:
+            return []
+
+        opened = self._reader(archive_url)
+        refused = []
+        listing = tarbox.children(
+            opened.archive, inner, _choice(), on_refused=refused.append
+        )
+        if refused:
+            plugin.log(
+                "%s: %d entry(ies) point outside the archive and were left out: %s"
+                % (archive_url, len(refused), ", ".join(sorted(set(refused))[:5])),
+                level="warning",
+            )
+        return [
+            Entry(
+                name=item.name,
+                kind=DIRECTORY if item.is_dir else FILE,
+                size=item.size,
+                modified=item.modified,
+                target=item.target,
+            )
+            for item in listing
+        ]
+
+    def stat(self, url: str) -> Optional[Entry]:
+        archive_url, inner = _split(url)
+        if not inner:
+            return Entry(name=tarbox.basename(archive_url), kind=DIRECTORY)
+
+        # During a pack the question is asked once per file — "is this one there
+        # already" — so it is answered from the names held in memory rather than
+        # by walking the staging tar n times for n files.
+        staging = self._staged(archive_url)
+        if staging is not None:
+            if inner in staging.known:
+                return Entry(name=tarbox.basename(inner), kind=FILE)
+            if any(name.startswith(inner + "/") for name in staging.known):
+                return Entry(name=tarbox.basename(inner), kind=DIRECTORY)
+            return None
+
+        if self._absent(archive_url):
+            return None
+        opened = self._reader(archive_url)
+        member = tarbox.find(opened.archive, inner, _choice())
+        if member is not None:
+            return Entry(
+                name=tarbox.basename(inner),
+                kind=FILE,
+                size=member.size,
+                modified=float(member.mtime) if opened.archive.is_tar else None,
+            )
+        if tarbox.holds(opened.archive, inner, _choice()):
+            return Entry(name=tarbox.basename(inner), kind=DIRECTORY)
+        return None
+
+    def read(self, url: str, offset: int, length: int) -> bytes:
+        archive_url, inner = _split(url)
+        opened = self._reader(archive_url)
+        member = tarbox.find(opened.archive, inner, _choice())
+        if member is None:
+            raise RpcError("%s is not in the archive" % inner)
+        return tarbox.read_at(
+            opened.archive, member, offset, length, fileobj=opened.handle
+        )
+
+    # -- writing ----------------------------------------------------------
+
+    def begin_write(
+        self, url: str, size: Optional[int], modified: Optional[float]
+    ) -> None:
+        self._incoming[url] = (size, modified)
+
+    def write(self, url: str, data: bytes, mode: str) -> None:
+        archive_url, inner = _split(url)
+        if not inner:
+            raise RpcError("An archive cannot be written to as if it were a file")
+        path = self._writable_path(archive_url)
+
+        if mode == "create":
+            self._discard()
+            self._start(path, archive_url)
+            # **The size goes in front of the bytes in a tar**, and there is
+            # nowhere to put it afterwards, so the member is written to a file
+            # of its own and added when its real length is known. Which is also
+            # why a cancelled copy here has touched nothing at all.
+            self._member_path = self._staging.path + ".member"
+            self._member_handle = open(self._member_path, "wb")
+            self._member_url = url
+
+        if self._member_handle is None or self._member_url != url:
+            raise RpcError("%s was appended to without being started" % inner)
+        if data:
+            self._member_handle.write(data)
+
+    def _start(self, path: str, archive_url: str) -> None:
+        """Makes sure the staging tar for this archive is the one we are on."""
+        if self._staging is not None and self._staging.archive_path == path:
+            return
+        self._flush_all()
+        self._forget(archive_url)
+        self._staging = tarbox.Staging(
+            path, tarbox.compression_for(path), _level()
+        )
+        self._staging.prepare(log=lambda message: plugin.log(message, "warning"))
+
+    def close_write(self, url: str, complete: bool) -> None:
+        if self._member_handle is None or self._member_url != url:
+            return
+        handle, self._member_handle = self._member_handle, None
+        member_path, self._member_path = self._member_path, None
+        self._member_url = None
+        size, modified = self._incoming.pop(url, (None, None))
+        handle.close()
+
+        try:
+            if complete and self._staging is not None:
+                _, inner = _split(url)
+                self._staging.add(inner, member_path, modified)
+        finally:
+            if member_path and os.path.exists(member_path):
+                os.unlink(member_path)
+
+    def finish_writes(self, url: str) -> None:
+        """The operation is over: write the archive, once."""
+        self._discard()
+        self._flush_all()
+        archive_url, _ = _split(url)
+        self._forget(archive_url)
+
+    def _flush_all(self) -> None:
+        staging = self._staging
+        if staging is None:
+            return
+        self._staging = None
+        try:
+            staging.flush()
+        except Exception as failure:
+            plugin.log(
+                "could not finish %s: %s" % (staging.archive_path, failure), "error"
+            )
+            raise RpcError("Could not finish %s: %s" % (staging.archive_path, failure))
+
+    def _discard(self) -> None:
+        """Throws away a member the copy never finished sending."""
+        if self._member_handle is None:
+            return
+        handle, self._member_handle = self._member_handle, None
+        member_path, self._member_path = self._member_path, None
+        self._member_url = None
+        try:
+            handle.close()
+        finally:
+            if member_path and os.path.exists(member_path):
+                os.unlink(member_path)
+
+    # -- changing ---------------------------------------------------------
+
+    def mkdir(self, url: str) -> None:
+        archive_url, inner = _split(url)
+        if not inner:
+            raise RpcError("The archive itself already exists")
+        path = self._writable_path(archive_url)
+        self._start(path, archive_url)
+        self._staging.add_directory(inner)
+
+    def delete(self, url: str) -> None:
+        archive_url, inner = _split(url)
+        path = self._writable_path(archive_url)
+        if not inner:
+            raise RpcError("Leave the archive and delete it as a file")
+
+        # Through the staging tar, so deleting several members is one rewrite of
+        # a plain tar and one compression at the end rather than one of each per
+        # member.
+        self._start(path, archive_url)
+        if inner not in self._staging.known and not any(
+            name.startswith(inner + "/") for name in self._staging.known
+        ):
+            raise RpcError("%s is not in the archive" % inner)
+        self._staging.drop(inner)
+
+    def rename(self, source: str, target: str) -> None:
+        source_archive, source_inner = _split(source)
+        target_archive, target_inner = _split(target)
+        if source_archive != target_archive:
+            raise RpcError("A file can only be renamed inside its own archive")
+        if not source_inner or not target_inner:
+            raise RpcError("The archive itself is renamed from the folder holding it")
+
+        path = self._writable_path(source_archive)
+        self._start(path, source_archive)
+        if target_inner in self._staging.known:
+            raise RpcError("%s is already in the archive" % target_inner)
+        if source_inner not in self._staging.known and not any(
+            name.startswith(source_inner + "/") for name in self._staging.known
+        ):
+            raise RpcError("%s is not in the archive" % source_inner)
+
+        tarbox.rewrite(
+            self._staging.path,
+            tarbox.renaming(source_inner, target_inner),
+            "",
+            0,
+        )
+        self._staging.known = set(self._staging.names())
+        self._staging.dirty = True
+
+
 def _reader(url: str) -> _Open:
-    """The viewer's way in, sharing the file system's open archives."""
-    return filesystem._reader(url)
+    """The zip viewer's way in, sharing the file system's open archives."""
+    return zips._reader(url)
 
 
-filesystem = ArchiveFileSystem()
-plugin.add_filesystem(filesystem)
+zips = ZipFileSystem()
+tars = TarFileSystem()
+plugin.add_filesystem(zips)
+plugin.add_filesystem(tars)
 
 
 @plugin.on_shutdown
 def _cleanup():
-    """Anything half written is thrown away rather than left sealed as whole."""
-    filesystem._discard()
-    for archive_url in list(filesystem._open):
-        filesystem._forget(archive_url)
+    """Nothing half written is left sealed as whole, and nothing is left staged.
+
+    The staged tar is written out here rather than dropped: the host says when an
+    operation ends, but a window closing is not an operation ending, and files
+    somebody packed a moment ago should be in the archive whichever way the
+    application went away.
+    """
+    zips._discard()
+    tars._discard()
+    tars._flush_all()
+    zips._forget_all()
+    tars._forget_all()
 
 
 plugin.run()

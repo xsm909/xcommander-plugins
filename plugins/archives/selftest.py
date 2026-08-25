@@ -27,14 +27,18 @@ answered by a mock.
 
 from __future__ import annotations
 
+import gzip
+import io
 import os
 import shutil
 import sys
+import tarfile
 import tempfile
 import time
 import zipfile
 
 import hostfile
+import tarbox
 import zipbox
 
 FAILURES = []
@@ -105,6 +109,15 @@ def names():
         "and 'leave them alone' leaves them alone",
         zipbox.decoded_name(legacy("Отчёт.txt", "cp866"), zipbox.LITERAL),
         "Отчёт.txt".encode("cp866").decode("cp437"),
+    )
+
+    # The `zip` on every Linux box writes UTF-8 names and does not set the flag
+    # that says so, so the bytes arrive having been read as 437. Getting this
+    # wrong turned a perfectly good name into mojibake for a while.
+    check(
+        "a UTF-8 name with no flag on it is still a UTF-8 name",
+        zipbox.decoded_name(legacy("Отчёт за август.txt", "utf-8")),
+        "Отчёт за август.txt",
     )
 
     ascii_only = zipfile.ZipInfo("notes.txt")
@@ -316,6 +329,213 @@ def dangerous_listing(folder: str):
     handle.close()
 
 
+# -- tarballs --------------------------------------------------------------
+
+
+def tar_names():
+    # tarfile decodes with surrogateescape, so the bytes survive and the repair
+    # is a repair rather than a guess.
+    written = "Отчёт за август.txt".encode("cp866")
+    mangled = written.decode("utf-8", "surrogateescape")
+    check(
+        "a DOS name in a tar comes back too",
+        tarbox.decoded_name(mangled),
+        "Отчёт за август.txt",
+    )
+    check(
+        "and a proper UTF-8 one is left alone",
+        tarbox.decoded_name("Отчёт.txt"),
+        "Отчёт.txt",
+    )
+    check("what tar calls ./a/b is a/b", tarbox.normalised("./a/b/"), "a/b")
+
+    for name, how in (
+        ("box.tar", ""),
+        ("box.tgz", "gz"),
+        ("box.tar.gz", "gz"),
+        ("BOX.TAR.BZ2", "bz2"),
+        ("box.txz", "xz"),
+        ("box.tar.xz", "xz"),
+        ("notes.gz", "gz"),
+    ):
+        check("%s is written as %r" % (name, how), tarbox.compression_for(name), how)
+
+    check("the file inside notes.txt.gz", tarbox.inner_name_of("/a/notes.txt.gz"),
+          "notes.txt")
+
+
+def tar_reading(folder: str):
+    """Every compression, read the same way — and the bytes decide, not the name."""
+    filler = os.urandom(1 << 20)
+    for extension, mode in (("tar", "w"), ("tgz", "w:gz"), ("tbz2", "w:bz2"),
+                            ("txz", "w:xz")):
+        path = os.path.join(folder, "read.%s" % extension)
+        with tarfile.open(path, mode) as tar:
+            for name, body in (("readme.txt", b"hello"), ("docs/inner.txt", b"deeper"),
+                               ("big.bin", filler)):
+                info = tarfile.TarInfo(name)
+                info.size = len(body)
+                info.mtime = 1590000000
+                tar.addfile(info, io.BytesIO(body))
+            tar.addfile(_directory("docs/pictures"))
+
+        blob = open(path, "rb").read()
+        handle = hostfile.opened(FakeHost(blob), "file:///" + path, len(blob))
+        archive = tarbox.opened(handle, path)
+        ok("%s is read as a tar" % extension, archive.is_tar)
+
+        top = {item.name: item for item in tarbox.children(archive, "")}
+        check("%s: the top level" % extension, sorted(top),
+              ["big.bin", "docs", "readme.txt"])
+        ok("%s: a folder is a folder" % extension, top["docs"].is_dir)
+        check("%s: and a size is a size" % extension, top["big.bin"].size, len(filler))
+        check("%s: the date is the one stored" % extension,
+              int(top["big.bin"].modified), 1590000000)
+
+        inner = {item.name for item in tarbox.children(archive, "docs")}
+        check("%s: one level down" % extension, sorted(inner),
+              ["inner.txt", "pictures"])
+
+        member = tarbox.find(archive, "docs/inner.txt")
+        ok("%s: a member is found" % extension, member is not None)
+        check("%s: and read" % extension,
+              tarbox.read_at(archive, member, 0, 100), b"deeper")
+        check("%s: from an offset" % extension,
+              tarbox.read_at(archive, member, 2, 3), b"epe")
+        archive.close()
+        handle.close()
+
+
+def _directory(name):
+    info = tarfile.TarInfo(name)
+    info.type = tarfile.DIRTYPE
+    info.mode = 0o755
+    return info
+
+
+def tar_solo(folder: str):
+    """A `.gz` that is not a tarball at all is one file, and reads as one."""
+    path = os.path.join(folder, "notes.txt.gz")
+    with gzip.open(path, "wb") as handle:
+        handle.write(b"just the one file, compressed")
+
+    blob = open(path, "rb").read()
+    handle = hostfile.opened(FakeHost(blob), "file:///" + path, len(blob))
+    archive = tarbox.opened(handle, path)
+    ok("it is not a tar", not archive.is_tar)
+    listing = tarbox.children(archive, "")
+    check("and holds one file, named after the archive",
+          [item.name for item in listing], ["notes.txt"])
+    check("with the size it decompresses to", listing[0].size, 29)
+    member = tarbox.find(archive, "notes.txt")
+    check("read whole", tarbox.read_at(archive, member, 0, 100, fileobj=handle),
+          b"just the one file, compressed")
+    check("read from an offset", tarbox.read_at(archive, member, 5, 3, fileobj=handle),
+          b"the")
+    handle.close()
+
+
+def tar_writing(folder: str):
+    """Packing through the staging tar, which is the only way into a `.tgz`."""
+    for extension in ("tar", "tgz", "tbz2", "txz"):
+        path = os.path.join(folder, "made.%s" % extension)
+        staging = tarbox.Staging(path, tarbox.compression_for(path), 6)
+        staging.prepare()
+
+        one = os.path.join(folder, "one.bin")
+        open(one, "wb").write(b"hello world")
+        staging.add("notes.txt", one, 1590000000)
+        staging.add_directory("docs")
+        staging.add("docs/deeper.txt", one, 1590000000)
+
+        ok("%s: nothing is written until it is finished" % extension,
+           not os.path.exists(path))
+        ok("%s: and the part file is there to be seen" % extension,
+           os.path.exists(staging.path))
+        staging.flush()
+        ok("%s: the archive appears" % extension, os.path.exists(path))
+        ok("%s: and the part file is gone" % extension,
+           not os.path.exists(staging.path))
+
+        with tarfile.open(path) as tar:
+            check("%s: everything landed" % extension, sorted(tar.getnames()),
+                  ["docs", "docs/deeper.txt", "notes.txt"])
+            check("%s: bytes intact" % extension,
+                  tar.extractfile("notes.txt").read(), b"hello world")
+            check("%s: the date came from the source" % extension,
+                  tar.getmember("notes.txt").mtime, 1590000000)
+
+        # Adding to one that is already there keeps what was in it.
+        again = tarbox.Staging(path, tarbox.compression_for(path), 6)
+        again.prepare()
+        check("%s: the staging tar starts as the archive" % extension,
+              sorted(again.known), ["docs", "docs/deeper.txt", "notes.txt"])
+        again.add("later.txt", one, 1590000000)
+        again.flush()
+        with tarfile.open(path) as tar:
+            check("%s: added to rather than replaced" % extension,
+                  sorted(tar.getnames()),
+                  ["docs", "docs/deeper.txt", "later.txt", "notes.txt"])
+
+
+def tar_changing(folder: str):
+    path = os.path.join(folder, "change.tgz")
+    with tarfile.open(path, "w:gz") as tar:
+        for name in ("keep.txt", "docs/a.txt", "docs/b.txt", "docs/deep/c.txt"):
+            info = tarfile.TarInfo(name)
+            body = name.encode()
+            info.size = len(body)
+            info.mtime = 1500000000
+            tar.addfile(info, io.BytesIO(body))
+
+    staging = tarbox.Staging(path, "gz", 6)
+    staging.prepare()
+    staging.drop("docs/a.txt")
+    staging.flush()
+    with tarfile.open(path) as tar:
+        check("one member gone, the others untouched", sorted(tar.getnames()),
+              ["docs/b.txt", "docs/deep/c.txt", "keep.txt"])
+        check("and the dates were carried, not stamped anew",
+              tar.getmember("keep.txt").mtime, 1500000000)
+        check("with the bytes intact",
+              tar.extractfile("docs/deep/c.txt").read(), b"docs/deep/c.txt")
+
+    staging = tarbox.Staging(path, "gz", 6)
+    staging.prepare()
+    staging.drop("docs")
+    staging.flush()
+    with tarfile.open(path) as tar:
+        check("deleting a folder takes everything under it", tar.getnames(),
+              ["keep.txt"])
+
+    tarbox.rewrite(path, tarbox.renaming("keep.txt", "kept.txt"), "gz", 6)
+    with tarfile.open(path) as tar:
+        check("a rename is a rewrite", tar.getnames(), ["kept.txt"])
+        check("carrying the bytes", tar.extractfile("kept.txt").read(), b"keep.txt")
+
+    ok("no part file was left beside the archive",
+       not any(name.endswith(tarbox.PART) for name in os.listdir(folder)))
+
+
+def tar_dangerous(folder: str):
+    path = os.path.join(folder, "evil.tar")
+    with tarfile.open(path, "w") as tar:
+        for name in ("fine.txt", "../escape.txt"):
+            info = tarfile.TarInfo(name)
+            info.size = 2
+            tar.addfile(info, io.BytesIO(b"ok"))
+
+    blob = open(path, "rb").read()
+    handle = hostfile.opened(FakeHost(blob), "file:///" + path, len(blob))
+    archive = tarbox.opened(handle, path)
+    refused = []
+    listing = tarbox.children(archive, "", tarbox.AUTO, refused.append)
+    check("only the honest one is listed", [i.name for i in listing], ["fine.txt"])
+    check("and the other is reported", refused, ["../escape.txt"])
+    archive.close()
+    handle.close()
+
+
 def main():
     folder = tempfile.mkdtemp(prefix="xcommander-archives-")
     try:
@@ -325,6 +545,12 @@ def main():
         writing(folder)
         changing(folder)
         dangerous_listing(folder)
+        tar_names()
+        tar_reading(folder)
+        tar_solo(folder)
+        tar_writing(folder)
+        tar_changing(folder)
+        tar_dangerous(folder)
     finally:
         shutil.rmtree(folder, ignore_errors=True)
 

@@ -1,8 +1,8 @@
 {
   "id": "org.xcommander.archives",
   "name": "Archives",
-  "version": "1.0.0",
-  "description": "ZIP archives as folders. Enter one and walk it, F5 out of it to unpack and into it to pack, F3 for a table of what is inside. Read from wherever the archive lives, including another plugin's file system; written where the machine can open it.",
+  "version": "1.1.0",
+  "description": "ZIP archives and tarballs as folders. Enter one and walk it, F5 out of it to unpack and into it to pack, F3 for a table of what is inside. Read from wherever the archive lives, including another plugin's file system; written where the machine can open it.",
   "category": "Archives",
   "author": "xcommander",
   "homepage": "https://github.com/xsm909/xcommander-plugins",
@@ -20,6 +20,10 @@
     {
       "scheme": "zip",
       "icon": "archive"
+    },
+    {
+      "scheme": "tar",
+      "icon": "archive"
     }
   ],
   "containers": [
@@ -32,6 +36,23 @@
         "whl",
         "apk",
         "epub"
+      ]
+    },
+    {
+      "scheme": "tar",
+      "title": "Tarball",
+      "extensions": [
+        "tgz",
+        "tar",
+        "tbz2",
+        "tbz",
+        "txz",
+        "taz",
+        "tlz",
+        "gz",
+        "bz2",
+        "xz",
+        "lzma"
       ]
     }
   ],
@@ -50,6 +71,24 @@
         "pptx",
         "epub"
       ]
+    },
+    {
+      "id": "tar.contents",
+      "title": "Tarball contents",
+      "priority": 30,
+      "extensions": [
+        "tar",
+        "tgz",
+        "tbz",
+        "tbz2",
+        "txz",
+        "taz",
+        "tlz",
+        "gz",
+        "bz2",
+        "xz",
+        "lzma"
+      ]
     }
   ],
   "settings": [
@@ -61,7 +100,7 @@
       "minimum": 0,
       "maximum": 9,
       "step": 1,
-      "note": "Zero stores the files without compressing them, which is what you want for pictures and other archives. Nine is the smallest and the slowest."
+      "note": "Zero stores the files without compressing them, which is what you want for pictures and other archives. Nine is the smallest and the slowest. A plain .tar is never compressed whatever this says, and .tar.gz and its kin are compressed as a whole."
     },
     {
       "key": "legacyNames",
