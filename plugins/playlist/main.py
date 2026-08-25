@@ -120,6 +120,10 @@ class PlaylistFileSystem(FileSystem):
 
     scheme = "m3u"
 
+    # The docstring above says read-only; this is where the host is told, so a
+    # panel standing in a playlist offers nothing it would then refuse.
+    writable = False
+
     def _tracks(self, url: str) -> Tuple[str, List[Track], str]:
         parsed = urlparse(url)
         query = parse_qs(parsed.query)
