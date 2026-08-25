@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.archives",
   "name": "Archives",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "ZIP archives and tarballs as folders. Enter one and walk it, F5 out of it to unpack and into it to pack, F3 for a table of what is inside. Read from wherever the archive lives, including another plugin's file system; written where the machine can open it.",
   "category": "Archives",
   "author": "xcommander",
@@ -36,6 +36,12 @@
         "whl",
         "apk",
         "epub"
+      ],
+      "packs": [
+        {
+          "extension": "zip",
+          "title": "ZIP archive"
+        }
       ]
     },
     {
@@ -53,6 +59,24 @@
         "bz2",
         "xz",
         "lzma"
+      ],
+      "packs": [
+        {
+          "extension": "tgz",
+          "title": "Tarball, gzip"
+        },
+        {
+          "extension": "tbz2",
+          "title": "Tarball, bzip2"
+        },
+        {
+          "extension": "txz",
+          "title": "Tarball, xz"
+        },
+        {
+          "extension": "tar",
+          "title": "Tarball, no compression"
+        }
       ]
     }
   ],

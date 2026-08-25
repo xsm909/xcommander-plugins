@@ -3,7 +3,7 @@
     "folder": "archives",
     "id": "org.xcommander.archives",
     "name": "Archives",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "ZIP archives and tarballs as folders. Enter one and walk it, F5 out of it to unpack and into it to pack, F3 for a table of what is inside. Read from wherever the archive lives, including another plugin's file system; written where the machine can open it.",
     "runtime": "python",
     "apiVersion": 1,
@@ -15,7 +15,7 @@
     "pythonMin": "3.12",
     "category": "Archives",
     "icon": "archive",
-    "updated": "2026-08-25T20:48:29+02:00"
+    "updated": "2026-08-25T20:49:07+02:00"
   },
   {
     "folder": "audio",
