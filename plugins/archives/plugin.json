@@ -1,0 +1,92 @@
+{
+  "id": "org.xcommander.archives",
+  "name": "Archives",
+  "version": "1.0.0",
+  "description": "ZIP archives as folders. Enter one and walk it, F5 out of it to unpack and into it to pack, F3 for a table of what is inside. Read from wherever the archive lives, including another plugin's file system; written where the machine can open it.",
+  "category": "Archives",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "archive",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "schemes": [
+    {
+      "scheme": "zip",
+      "icon": "archive"
+    }
+  ],
+  "containers": [
+    {
+      "scheme": "zip",
+      "title": "ZIP archive",
+      "extensions": [
+        "zip",
+        "jar",
+        "whl",
+        "apk",
+        "epub"
+      ]
+    }
+  ],
+  "viewers": [
+    {
+      "id": "zip.contents",
+      "title": "Archive contents",
+      "priority": 30,
+      "extensions": [
+        "zip",
+        "jar",
+        "whl",
+        "apk",
+        "docx",
+        "xlsx",
+        "pptx",
+        "epub"
+      ]
+    }
+  ],
+  "settings": [
+    {
+      "key": "level",
+      "label": "Compression",
+      "type": "integer",
+      "default": 6,
+      "minimum": 0,
+      "maximum": 9,
+      "step": 1,
+      "note": "Zero stores the files without compressing them, which is what you want for pictures and other archives. Nine is the smallest and the slowest."
+    },
+    {
+      "key": "legacyNames",
+      "label": "Names in older archives",
+      "type": "choice",
+      "default": "auto",
+      "options": [
+        {
+          "value": "auto",
+          "label": "Work it out"
+        },
+        {
+          "value": "oem",
+          "label": "DOS (866)"
+        },
+        {
+          "value": "windows",
+          "label": "Windows (1251)"
+        },
+        {
+          "value": "literal",
+          "label": "Leave them alone (437)"
+        }
+      ],
+      "note": "An archive made before UTF-8 does not say which code page its names are in. Nothing is guessed for names that do say."
+    }
+  ]
+}

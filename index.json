@@ -1,5 +1,37 @@
 [
   {
+    "folder": "archives",
+    "id": "org.xcommander.archives",
+    "name": "Archives",
+    "version": "1.0.0",
+    "description": "ZIP archives as folders. Enter one and walk it, F5 out of it to unpack and into it to pack, F3 for a table of what is inside. Read from wherever the archive lives, including another plugin's file system; written where the machine can open it.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Archives",
+    "icon": "archive",
+    "updated": null
+  },
+  {
+    "folder": "audio",
+    "id": "org.xcommander.builtin.audio",
+    "name": "Sound",
+    "version": "1.0.0",
+    "description": "Plays the sounds the machine's own engine already reads, drawn as the shape of the whole file with the playhead running through it. Which of these a machine plays is not the same everywhere \u2014 mp3, wav and m4a are read wherever the application runs, and the rest depend on what the system brings: aiff and caf are the Mac's, wma is Windows'.",
+    "runtime": "declarative",
+    "apiVersion": 1,
+    "platforms": [],
+    "pythonMin": null,
+    "category": "Viewers",
+    "icon": null,
+    "updated": "2026-08-18T20:52:27+02:00"
+  },
+  {
     "folder": "compare",
     "id": "org.xcommander.compare",
     "name": "Compare folders",
@@ -158,6 +190,24 @@
     "updated": "2026-08-17T20:21:10+02:00"
   },
   {
+    "folder": "playlist",
+    "id": "org.xcommander.playlist",
+    "name": "Playlists",
+    "version": "0.1.0",
+    "description": "Opens a playlist as a folder of the tracks it names, and lists what is in it with F3. M3U, M3U8 and PLS \u2014 the three lists a music player has written since anybody had a music player.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Viewers",
+    "icon": "list",
+    "updated": "2026-08-25T19:34:56+02:00"
+  },
+  {
     "folder": "smb",
     "id": "org.xcommander.smb",
     "name": "SMB",
@@ -241,24 +291,6 @@
     "pythonMin": "3.12",
     "category": "Transports",
     "icon": "cloud",
-    "updated": "2026-08-10T20:51:43+02:00"
-  },
-  {
-    "folder": "zip-viewer",
-    "id": "org.xcommander.zip-viewer",
-    "name": "Archives",
-    "version": "0.2.0",
-    "description": "Opens ZIP archives as folders, and lists their contents with F3. An example of work that needs real code, not a declarative render spec.",
-    "runtime": "python",
-    "apiVersion": 1,
-    "platforms": [
-      "windows",
-      "macos",
-      "linux"
-    ],
-    "pythonMin": "3.12",
-    "category": "Archives",
-    "icon": "archive",
     "updated": "2026-08-10T20:51:43+02:00"
   }
 ]
