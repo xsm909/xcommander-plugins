@@ -15,7 +15,7 @@
     "pythonMin": "3.12",
     "category": "Archives",
     "icon": "archive",
-    "updated": "2026-08-25T20:49:07+02:00"
+    "updated": "2026-08-25T21:30:24+02:00"
   },
   {
     "folder": "audio",
@@ -170,6 +170,24 @@
     "category": "Viewers",
     "icon": "view",
     "updated": "2026-08-16T10:51:50+02:00"
+  },
+  {
+    "folder": "pdf",
+    "id": "org.xcommander.pdf",
+    "name": "PDF as Markdown",
+    "version": "0.1.0",
+    "description": "A PDF read as a document rather than drawn as a page: headings, lists and tables, with the running heads, the page numbers and the line breaks of the page measure thrown away. Nothing is rendered and nothing third-party is shipped \u2014 the page as it stands is one Enter away, in whatever this machine already opens PDFs with.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Viewers",
+    "icon": "view",
+    "updated": "2026-08-30T17:20:53+02:00"
   },
   {
     "folder": "pictures",

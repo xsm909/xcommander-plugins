@@ -1,0 +1,49 @@
+{
+  "id": "org.xcommander.pdf",
+  "name": "PDF as Markdown",
+  "version": "0.1.0",
+  "description": "A PDF read as a document rather than drawn as a page: headings, lists and tables, with the running heads, the page numbers and the line breaks of the page measure thrown away. Nothing is rendered and nothing third-party is shipped — the page as it stands is one Enter away, in whatever this machine already opens PDFs with.",
+  "category": "Viewers",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "view",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "viewers": [
+    {
+      "id": "pdf.markdown",
+      "title": "Document",
+      "extensions": [
+        "pdf"
+      ],
+      "priority": 20
+    }
+  ],
+  "settings": [
+    {
+      "key": "maxPages",
+      "label": "Pages to read at most",
+      "type": "integer",
+      "default": 0,
+      "minimum": 0,
+      "maximum": 5000,
+      "note": "Nought reads the whole file, which is what a document wants. A number is for the thousand-page manual: only that many pages are read and the reading says so at the top. Reading is lazy either way, so a long file costs its length only once."
+    },
+    {
+      "key": "maxCharacters",
+      "label": "Characters to show at most",
+      "type": "integer",
+      "default": 0,
+      "minimum": 0,
+      "maximum": 20000000,
+      "note": "Nought shows all of it. A limit cuts at the end of a line rather than mid-word, and the reading says it was cut."
+    }
+  ]
+}
