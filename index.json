@@ -205,7 +205,7 @@
     "pythonMin": "3.12",
     "category": "Viewers",
     "icon": "image",
-    "updated": "2026-08-17T20:21:10+02:00"
+    "updated": "2026-08-30T18:10:09+02:00"
   },
   {
     "folder": "playlist",
@@ -242,6 +242,24 @@
     "category": "Transports",
     "icon": "cloud",
     "updated": "2026-08-10T20:51:43+02:00"
+  },
+  {
+    "folder": "sound-tags",
+    "id": "org.xcommander.soundtags",
+    "name": "Sound tags",
+    "version": "0.1.0",
+    "description": "What a recording says it is: the title, who played it, the album and the year, and the cover art inside the file \u2014 read out of ID3 in an MP3, the atoms of an M4A, a FLAC's own comments or a WAV's LIST INFO. Beside the sound viewer rather than inside it, because the machine's engine is what plays the file and it knows nothing about tags.",
+    "runtime": "python",
+    "apiVersion": 1,
+    "platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ],
+    "pythonMin": "3.12",
+    "category": "Viewers",
+    "icon": "view",
+    "updated": null
   },
   {
     "folder": "sysinfo",

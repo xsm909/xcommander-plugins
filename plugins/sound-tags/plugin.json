@@ -1,0 +1,49 @@
+{
+  "id": "org.xcommander.soundtags",
+  "name": "Sound tags",
+  "version": "0.1.0",
+  "description": "What a recording says it is: the title, who played it, the album and the year, and the cover art inside the file — read out of ID3 in an MP3, the atoms of an M4A, a FLAC's own comments or a WAV's LIST INFO. Beside the sound viewer rather than inside it, because the machine's engine is what plays the file and it knows nothing about tags.",
+  "category": "Viewers",
+  "author": "xcommander",
+  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "apiVersion": 1,
+  "runtime": "python",
+  "entry": "main.py",
+  "pythonMin": "3.12",
+  "icon": "view",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "describers": [
+    {
+      "id": "sound.about",
+      "title": "About this recording",
+      "extensions": [
+        "aac",
+        "ac3",
+        "adts",
+        "aif",
+        "aifc",
+        "aiff",
+        "amr",
+        "au",
+        "caf",
+        "flac",
+        "m4a",
+        "m4b",
+        "mp2",
+        "mp3",
+        "mp4",
+        "oga",
+        "ogg",
+        "opus",
+        "snd",
+        "wav",
+        "wave",
+        "wma"
+      ]
+    }
+  ]
+}
