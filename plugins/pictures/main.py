@@ -38,8 +38,16 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from xcommander import Plugin, error, image  # noqa: E402
+from xcommander import (  # noqa: E402
+    Plugin,
+    error,
+    fact,
+    fact_group,
+    facts,
+    image,
+)
 
+import meta  # noqa: E402
 import png  # noqa: E402
 import psd  # noqa: E402
 import tga  # noqa: E402
@@ -149,6 +157,221 @@ def picture(url: str) -> dict:
     content = answer(extension, raw)
     plugin.log("%s %s, %.2fs" % (extension, content.get("kind"), time.time() - started))
     return content
+
+
+# -- what a picture says about itself --------------------------------------
+
+#: Every raster format worth asking about, whether or not this plugin is the
+#: one that draws it. That is the whole point of a describer being its own
+#: contribution: a JPEG is decoded by the machine's engine through a plugin
+#: that runs no Python at all, and its EXIF still has to come from somewhere.
+DESCRIBED = [
+    "jpg", "jpeg", "jpe", "jfif", "png", "gif", "bmp", "webp",
+    "heic", "heif", "avif", "tif", "tiff", "psd", "psb", "tga", "targa",
+    "xcf", "dng", "cr2", "nef", "arw", "orf", "rw2", "raf",
+]
+
+#: The head of a file is where every one of these formats keeps what it says
+#: about itself — EXIF stands before the pixels in all of them. A raw file is
+#: the exception worth naming: its EXIF is a TIFF directory at the front, so
+#: this is enough there too.
+HEAD_BYTES = 4 << 20
+
+
+@plugin.describer(
+    "pictures.about",
+    "About this picture",
+    extensions=DESCRIBED,
+)
+def about(url: str) -> dict:
+    started = time.time()
+    name = url.rsplit("/", 1)[-1]
+    try:
+        raw = plugin.read_file(url, max_bytes=HEAD_BYTES)
+    except Exception as failure:  # noqa: BLE001
+        return facts([], note="The file could not be read: %s" % failure)
+    if not raw:
+        return facts([], note="The file is empty.")
+
+    whole = (plugin.stat(url) or {}).get("size")
+    try:
+        found = meta.read(raw)
+    except Exception as failure:  # noqa: BLE001 - a damaged header is not a crash
+        return facts(
+            [_file_group(name, whole, meta.Picture())],
+            note="This file's header could not be read: %s" % failure,
+        )
+
+    groups = [
+        _file_group(name, whole, found),
+        _camera_group(found),
+        _exposure_group(found),
+        _when_group(found),
+        _where_group(found),
+        _made_group(found),
+    ]
+    plugin.log("%s: %d tag(s), %.2fs"
+               % (name, found.exif.count if found.exif else 0, time.time() - started))
+    return facts([g for g in groups if g], note=_note(found, len(raw), whole))
+
+
+def _file_group(name: str, whole, found) -> dict:
+    rows = [fact("Name", name)]
+    if isinstance(whole, int):
+        rows.append(fact("Size", meta.size(whole)))
+    if found.kind:
+        rows.append(fact("Format", found.kind))
+    if found.width and found.height:
+        rows.append(fact("Dimensions", "%d × %d" % (found.width, found.height)))
+        pixels = meta.megapixels(found.width, found.height)
+        if pixels:
+            rows.append(fact("Pixels", pixels))
+    if found.depth:
+        rows.append(fact("Colour", found.depth))
+    if found.notes:
+        rows.append(fact("Also", ", ".join(found.notes)))
+    exif = found.exif
+    if exif:
+        turned = meta.named(meta.ORIENTATION, exif.get(0x0112, "main"))
+        if turned and turned != "as it stands":
+            rows.append(fact("Orientation", turned))
+    return fact_group("Picture", rows)
+
+
+def _camera_group(found) -> dict:
+    exif = found.exif
+    if not exif:
+        return {}
+    rows = [
+        fact("Make", exif.get(0x010F, "main") or ""),
+        fact("Model", exif.get(0x0110, "main") or ""),
+        fact("Lens", exif.any(("exif", 0xA434), ("exif", 0xA433)) or ""),
+        fact("Serial", exif.get(0xA431) or ""),
+    ]
+    return fact_group("Camera", [r for r in rows if r["value"]])
+
+
+def _exposure_group(found) -> dict:
+    exif = found.exif
+    if not exif:
+        return {}
+    iso = exif.any(("exif", 0x8827), ("exif", 0x8833))
+    if isinstance(iso, list):
+        iso = iso[0] if iso else None
+    bias = meta.rational(exif.get(0x9204))
+    rows = [
+        fact("Shutter", meta.shutter(exif.get(0x829A))),
+        fact("Aperture", meta.aperture(exif.get(0x829D))),
+        fact("ISO", "" if iso is None else str(int(iso))),
+        fact("Focal length", meta.millimetres(exif.get(0x920A))),
+        # Only where it says something the line above did not: on a
+        # full-frame body the two are the same number twice.
+        fact("Full-frame equivalent", _equivalent(exif)),
+        fact("Exposure bias", "" if bias in (None, 0) else "%+g EV" % round(bias, 2)),
+        fact("Program", meta.named(meta.PROGRAM, exif.get(0x8822))),
+        fact("Metering", meta.named(meta.METERING, exif.get(0x9207))),
+        fact("Flash", meta.named(meta.FLASH, exif.get(0x9209))),
+        fact("White balance", meta.named(meta.WHITE_BALANCE, exif.get(0xA403))),
+    ]
+    return fact_group("Exposure", [r for r in rows if r["value"]])
+
+
+def _equivalent(exif) -> str:
+    """The 35 mm equivalent, unless it is the focal length again."""
+    equivalent = meta.millimetres(exif.get(0xA405))
+    return "" if equivalent == meta.millimetres(exif.get(0x920A)) else equivalent
+
+
+def _when_group(found) -> dict:
+    exif = found.exif
+    if not exif:
+        return {}
+    offset = exif.get(0x9011) or exif.get(0x9010)
+    rows = [
+        fact("Taken", meta.when(exif.get(0x9003), offset)),
+        fact("Digitised", meta.when(exif.get(0x9004), exif.get(0x9012))),
+        fact("Changed", meta.when(exif.get(0x0132, "main"))),
+    ]
+    # **The same instant three times is one fact.** A camera writes all three
+    # and a converter rewrites the last, so they usually differ by a time zone
+    # or by nothing at all — and three lines saying one thing is the noise this
+    # panel is supposed to be free of. Compared to the second, ignoring the
+    # offset, because that is what "the same moment" means here.
+    kept = []
+    for row in rows:
+        if not row["value"]:
+            continue
+        if any(row["value"][:19] == other["value"][:19] for other in kept):
+            continue
+        kept.append(row)
+    return fact_group("When", kept)
+
+
+def _where_group(found) -> dict:
+    exif = found.exif
+    if not exif or not exif.gps:
+        return {}
+    latitude = meta.degrees(exif.get(0x0002, "gps"), exif.get(0x0001, "gps"))
+    longitude = meta.degrees(exif.get(0x0004, "gps"), exif.get(0x0003, "gps"))
+    altitude = meta.rational(exif.get(0x0006, "gps"))
+    if altitude is not None and exif.get(0x0005, "gps") == b"\x01":
+        altitude = -altitude
+    rows = [
+        fact("Latitude", latitude),
+        fact("Longitude", longitude),
+        fact("Altitude", "" if altitude is None else "%d m" % round(altitude)),
+    ]
+    if latitude and longitude:
+        # One line to copy into whatever the reader uses for maps. Not a link:
+        # a viewer that quietly sends where a photograph was taken to somebody
+        # else's server is not a viewer, and this application asks first.
+        rows.append(fact("Coordinates", "%s, %s" % (latitude, longitude)))
+    return fact_group("Where", [r for r in rows if r["value"]])
+
+
+def _made_group(found) -> dict:
+    exif = found.exif
+    rows = []
+    if exif:
+        rows = [
+            fact("Software", exif.get(0x0131, "main") or ""),
+            fact("Artist", exif.get(0x013B, "main") or ""),
+            fact("Copyright", exif.get(0x8298, "main") or ""),
+            fact("Description", exif.get(0x010E, "main") or "", wide=True),
+            fact("Comment", _user_comment(exif.get(0x9286)), wide=True),
+        ]
+    for key, value in found.text[:12]:
+        rows.append(fact(key, value, wide=len(value) > 40))
+    return fact_group("Made with", [r for r in rows if r["value"]])
+
+
+def _user_comment(value) -> str:
+    """`UserComment` says its own encoding in the first eight bytes."""
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, bytes) or len(value) < 8:
+        return ""
+    head, body = value[:8], value[8:]
+    if head.startswith(b"UNICODE"):
+        return body.decode("utf-16-be", "replace").strip("\0 ")
+    if head.startswith(b"ASCII"):
+        return body.decode("ascii", "replace").strip("\0 ")
+    return body.decode("utf-8", "replace").strip("\0 ")
+
+
+def _note(found, read: int, whole) -> str:
+    remarks = []
+    if found.exif is None and not found.text and not found.xmp:
+        remarks.append("This file carries nothing beyond its own header.")
+    elif found.exif is not None:
+        # What is above is a choice out of what is there, and saying how much
+        # was left out is the difference between a summary and a claim.
+        remarks.append("%d tag(s) in the file." % found.exif.count)
+    if found.xmp:
+        remarks.append("It also carries XMP, which is not read here.")
+    if isinstance(whole, int) and whole > read:
+        remarks.append("Read the first %s of it." % meta.size(read))
+    return " ".join(remarks) if remarks else ""
 
 
 if __name__ == "__main__":

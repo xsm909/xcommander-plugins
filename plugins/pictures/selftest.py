@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import base64  # noqa: E402
 import psd  # noqa: E402
 import tga  # noqa: E402
+import meta  # noqa: E402
 import tiff  # noqa: E402
 import xcf  # noqa: E402
 
@@ -335,6 +336,148 @@ def check_files(folder: str):
         print("  (nothing this reads under %s)" % folder)
 
 
+# -- what a file says about itself ----------------------------------------
+
+
+def tiff_directory(entries, endian=">", header=True, base_extra=b""):
+    """A TIFF header and one directory, built by hand.
+
+    Built rather than borrowed, for the reason the whole of this file exists:
+    a fixture written by somebody else's encoder only ever proves that today's
+    copy of it still reads. ``entries`` is ``[(tag, type, count, payload)]``
+    where a payload of four bytes or fewer sits in the entry itself.
+    """
+    import struct as _s
+
+    pack = _s.pack
+    count = len(entries)
+    # header 8 + count 2 + entries*12 + next 4
+    values_at = 8 + 2 + count * 12 + 4 + len(base_extra)
+    body = pack(endian + "H", count)
+    tail = b""
+    for tag, kind, length, payload in entries:
+        if len(payload) <= 4:
+            field = payload + b"\0" * (4 - len(payload))
+        else:
+            field = pack(endian + "I", values_at + len(tail))
+            tail += payload
+        body += pack(endian + "HHI", tag, kind, length) + field
+    body += pack(endian + "I", 0)
+    head = (b"II" if endian == "<" else b"MM") + pack(endian + "HI", 42, 8)
+    return head + body + base_extra + tail
+
+
+def rational(numerator, denominator, endian=">"):
+    import struct as _s
+    return _s.pack(endian + "II", numerator, denominator)
+
+
+def check_exif_reader():
+    import struct as _s
+    # A directory with one of every shape that matters: text, a short, a
+    # rational too big to sit in its own entry, and a pointer to a sub-IFD.
+    data = tiff_directory([
+        (0x010F, 2, 5, b"SONY\0"),
+        (0x0112, 3, 1, _s.pack(">H", 6) + b"\0\0"),
+        (0x011A, 5, 1, rational(72, 1)),
+    ])
+    found = meta.read_tiff_tags(data)
+    check("the make", found.main.get(0x010F), "SONY")
+    check("a short in its own entry", found.main.get(0x0112), 6)
+    check("a rational out of line", found.main.get(0x011A), (72, 1))
+    check("an orientation in words",
+          meta.named(meta.ORIENTATION, found.main.get(0x0112)), "turned right")
+
+    # The other byte order has to give the same answers.
+    little = tiff_directory([(0x010F, 2, 5, b"SONY\0")], endian="<")
+    check("little-endian", (meta.read_tiff_tags(little) or meta.Exif()).main.get(0x010F),
+          "SONY")
+
+    # Nonsense is refused rather than guessed at.
+    check("not a TIFF at all", meta.read_tiff_tags(b"not a tiff header"), None)
+
+
+def jpeg_with(exif_payload=b"", extra_segments=b""):
+    """A JPEG that is only its markers — no scan, because none is read."""
+    import struct as _s
+    out = b"\xff\xd8"
+    if exif_payload:
+        body = b"Exif\0\0" + exif_payload
+        out += b"\xff\xe1" + _s.pack(">H", len(body) + 2) + body
+    out += extra_segments
+    # A baseline frame: 8 bits, 40 high, 60 wide, three components.
+    frame = _s.pack(">BHHB", 8, 40, 60, 3) + b"\0" * 9
+    out += b"\xff\xc0" + _s.pack(">H", len(frame) + 2) + frame
+    out += b"\xff\xd9"
+    return out
+
+
+def check_jpeg_facts():
+    import struct as _s
+    exif = tiff_directory([
+        (0x010F, 2, 6, b"Canon\0"),
+        (0x0110, 2, 5, b"R6\0\0\0"),
+    ])
+    found = meta.read(jpeg_with(exif))
+    check("a JPEG is recognised", found.kind, "JPEG")
+    check("its size comes from the frame", (found.width, found.height), (60, 40))
+    check("its colour", found.depth, "24 bits, colour")
+    check("and its make", found.exif.main.get(0x010F) if found.exif else None, "Canon")
+
+    # A comment segment, and a file with no EXIF at all.
+    comment = b"a note somebody left"
+    plain = meta.read(jpeg_with(b"", b"\xff\xfe" + _s.pack(">H", len(comment) + 2) + comment))
+    check("no EXIF is not an error", plain.exif, None)
+    check("but a comment is still read", plain.text, [("Comment", "a note somebody left")])
+
+
+def check_gps():
+    """A coordinate as a number somebody can paste into a map.
+
+    Greenwich, near enough: 51° 28' 40.1" N and 0° 0' 5.3" W — and the answer
+    is arithmetic anybody can do on paper rather than what this code happens
+    to produce.
+    """
+    check("north is positive",
+          meta.degrees([(51, 1), (28, 1), (401, 10)], "N"), "51.477806")
+    check("and west is negative",
+          meta.degrees([(0, 1), (0, 1), (53, 10)], "W"), "-0.001472")
+    check("nothing to read is nothing said", meta.degrees(None, "N"), "")
+
+
+def check_readings():
+    check("a fast shutter", meta.shutter((1, 250)), "1/250 s")
+    check("a slow one", meta.shutter((25, 1)), "25 s")
+    check("no shutter", meta.shutter(None), "")
+    check("an aperture", meta.aperture((28, 10)), "f/2.8")
+    check("a focal length", meta.millimetres((425, 100)), "4.2 mm")
+    check("a date somebody wrote", meta.when("2026:08:30 17:04:11", "+02:00"),
+          "2026-08-30 17:04:11 +02:00")
+    check("a size", meta.size(1536), "1.5 KB")
+
+
+def check_png_facts():
+    import struct as _s, zlib as _z
+
+    def chunk(kind, body):
+        return _s.pack(">I", len(body)) + kind + body + _s.pack(
+            ">I", _z.crc32(kind + body) & 0xFFFFFFFF)
+
+    data = (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", _s.pack(">IIBBBBB", 32, 16, 8, 6, 0, 0, 0))
+            + chunk(b"tEXt", b"Author\0Somebody")
+            + chunk(b"eXIf", tiff_directory([(0x010F, 2, 6, b"Nikon\0")]))
+            + chunk(b"IDAT", b"\0")
+            + chunk(b"IEND", b""))
+    found = meta.read(data)
+    check("a PNG is recognised", found.kind, "PNG")
+    check("its size", (found.width, found.height), (32, 16))
+    check("its colour", found.depth, "32 bits, colour with alpha")
+    check("its text", found.text, [("Author", "Somebody")])
+    check("and EXIF inside a PNG",
+          found.exif.main.get(0x010F) if found.exif else None, "Nikon")
+
+
 def main() -> int:
     print("run-length encoding");   check_rle()
     print("packbits");              check_packbits()
@@ -346,6 +489,11 @@ def main() -> int:
     print("compositing");           check_compositing()
     print("blending");              check_blending()
     print("offsets");               check_offsets()
+    print("the EXIF directory");    check_exif_reader()
+    print("a JPEG's own words");    check_jpeg_facts()
+    print("a PNG's own words");     check_png_facts()
+    print("coordinates");           check_gps()
+    print("readings in words");     check_readings()
     for folder in sys.argv[1:]:
         print("the same TIFF three ways, under %s" % folder)
         check_tiff_kinds(folder)
