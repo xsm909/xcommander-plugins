@@ -187,7 +187,7 @@
     "pythonMin": "3.12",
     "category": "Viewers",
     "icon": "view",
-    "updated": "2026-08-30T17:21:02+02:00"
+    "updated": "2026-08-30T18:47:42+02:00"
   },
   {
     "folder": "pictures",
@@ -259,7 +259,7 @@
     "pythonMin": "3.12",
     "category": "Viewers",
     "icon": "view",
-    "updated": null
+    "updated": "2026-08-30T18:35:01+02:00"
   },
   {
     "folder": "sysinfo",
