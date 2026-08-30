@@ -101,7 +101,7 @@
     "pythonMin": "3.12",
     "category": "Viewers",
     "icon": "view",
-    "updated": "2026-08-17T10:16:57+02:00"
+    "updated": "2026-08-30T19:38:19+02:00"
   },
   {
     "folder": "ftp",
@@ -169,7 +169,7 @@
     "pythonMin": "3.12",
     "category": "Viewers",
     "icon": "view",
-    "updated": "2026-08-16T10:51:50+02:00"
+    "updated": "2026-08-30T19:38:19+02:00"
   },
   {
     "folder": "pdf",
@@ -187,14 +187,14 @@
     "pythonMin": "3.12",
     "category": "Viewers",
     "icon": "view",
-    "updated": "2026-08-30T18:47:42+02:00"
+    "updated": "2026-08-30T19:38:19+02:00"
   },
   {
     "folder": "pictures",
     "id": "org.xcommander.pictures",
     "name": "Pictures",
-    "version": "0.6.1",
-    "description": "The raster formats the machine's own decoder will not open, and the ones it will not open here. GIMP's .xcf with its layers, masks and blend modes composited, Photoshop's .psd and .psb through the flattened copy inside them, TIFF in strips or tiles with LZW, PackBits or deflate, and Targa. What this reader cannot read is handed to the machine's own decoder rather than refused. And what any photograph says about itself \u2014 camera, lens, exposure, when and where \u2014 read out of the EXIF of a JPEG, a HEIC, a PNG, a WebP or a TIFF, whoever happens to be drawing it.",
+    "version": "0.7.0",
+    "description": "The raster formats the machine's own decoder will not open, and the ones it will not open here. GIMP's .xcf with its layers, masks and blend modes composited, Photoshop's .psd and .psb through the flattened copy inside them, TIFF in strips or tiles with LZW, PackBits or deflate, and Targa. What this reader cannot read is handed to the machine's own decoder rather than refused. And what any photograph says about itself \u2014 camera, lens, exposure, when and where \u2014 read out of the EXIF of a JPEG, a HEIC, a PNG, a WebP or a TIFF, whoever happens to be drawing it. And a small copy of anything the machine's own decoder will not read, so a .xcf or an off-macOS .psd shows a picture in the strip rather than its name.",
     "runtime": "python",
     "apiVersion": 1,
     "platforms": [
@@ -205,7 +205,7 @@
     "pythonMin": "3.12",
     "category": "Viewers",
     "icon": "image",
-    "updated": "2026-08-30T19:16:10+02:00"
+    "updated": "2026-08-30T19:38:19+02:00"
   },
   {
     "folder": "playlist",
@@ -295,7 +295,7 @@
     "pythonMin": "3.12",
     "category": "Viewers",
     "icon": "view",
-    "updated": "2026-08-17T15:20:52+02:00"
+    "updated": "2026-08-30T19:38:19+02:00"
   },
   {
     "folder": "viewer",

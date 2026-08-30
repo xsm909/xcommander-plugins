@@ -140,12 +140,53 @@ def _mime(extension: str) -> str:
     }.get(extension, "application/octet-stream")
 
 
+def small_copy(url: str, pixels: int) -> "bytes | None":
+    """A thumbnail of a file the machine's own decoder will not read.
+
+    **Asked only after the engine has refused**, so this is `.xcf` anywhere and
+    `.psd` or `.tga` off macOS — the formats that used to put a name in the
+    strip instead of a picture.
+
+    The picture is read the way it always is and then **thinned by taking every
+    n-th pixel of every n-th row**, which is a slice per row and no arithmetic
+    per pixel. Nearest-neighbour is the right answer at this size: a 128-pixel
+    square of a photograph is a thumbnail either way, and an averaging shrink
+    is a hundred times the work for a difference nobody can see in a strip.
+    """
+    extension = url.rsplit(".", 1)[-1].lower()
+    if extension not in READERS:
+        return None
+    read, refusal, _what = READERS[extension]
+    try:
+        raw = plugin.read_file(url, max_bytes=MAX_BYTES)
+        found = read(raw)
+    except Exception:  # noqa: BLE001 - no thumbnail is not an error
+        return None
+
+    width, height = found["width"], found["height"]
+    if width <= 0 or height <= 0:
+        return None
+    step = max(1, (max(width, height) + pixels - 1) // pixels)
+    if step == 1:
+        return png.write(width, height, found["pixels"], level=1)
+
+    source = found["pixels"]
+    thin_width = (width + step - 1) // step
+    out = bytearray()
+    for y in range(0, height, step):
+        row = source[y * width * 4:(y + 1) * width * 4]
+        for x in range(0, width, step):
+            out += row[x * 4:x * 4 + 4]
+    return png.write(thin_width, len(out) // (thin_width * 4), bytes(out), level=1)
+
+
 @plugin.viewer(
     "pictures.raster",
     "Picture",
     extensions=sorted(READERS),
     priority=20,
     produces="picture",
+    thumbnail=small_copy,
 )
 def picture(url: str) -> dict:
     started = time.time()
