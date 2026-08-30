@@ -60,6 +60,7 @@ MAX_BYTES = 256 << 20
     # Above the hex dump and above nothing else: a .pdf is claimed by no other
     # viewer, so the number only settles the order in Shift+F3.
     priority=20,
+    produces="document",
 )
 def document(url: str) -> dict:
     started = time.time()

@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.vector",
   "name": "Vector graphics",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Drawings made of shapes, drawn as shapes rather than turned into a picture — so they stay sharp however far in you go. SVG with its text, gradients and reused shapes, and EPS by running it: a PostScript file is a program, and the drawing falls out of executing it.",
   "category": "Viewers",
   "author": "xcommander",
@@ -27,7 +27,8 @@
         "ps",
         "svg"
       ],
-      "priority": 20
+      "priority": 20,
+      "produces": "drawing"
     }
   ]
 }

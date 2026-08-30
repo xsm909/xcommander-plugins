@@ -63,6 +63,7 @@ READERS = {
     # Above the text viewer, which has always claimed .svg — a drawing opens on
     # F3 and its own text is one Shift+F3 away, which is the right way round.
     priority=20,
+    produces="drawing",
 )
 def drawing(url: str) -> dict:
     started = time.time()

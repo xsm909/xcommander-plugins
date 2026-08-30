@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.fbx",
   "name": "3D",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Shows a 3D model: shaded, turnable, textured, playing its animation — and what the file holds. FBX, glTF/GLB and OBJ, one viewer for all of them.",
   "category": "Viewers",
   "author": "xcommander",
@@ -26,7 +26,8 @@
         "gltf",
         "obj"
       ],
-      "priority": 20
+      "priority": 20,
+      "produces": "model"
     },
     {
       "id": "fbx.contents",
@@ -37,7 +38,8 @@
         "gltf",
         "obj"
       ],
-      "priority": 10
+      "priority": 10,
+      "produces": ""
     }
   ]
 }

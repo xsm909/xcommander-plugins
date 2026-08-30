@@ -145,6 +145,7 @@ def _mime(extension: str) -> str:
     "Picture",
     extensions=sorted(READERS),
     priority=20,
+    produces="picture",
 )
 def picture(url: str) -> dict:
     started = time.time()

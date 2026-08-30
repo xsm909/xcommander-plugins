@@ -1,7 +1,7 @@
 {
   "id": "org.xcommander.pdf",
   "name": "PDF as Markdown",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A PDF read as a document rather than drawn as a page: headings, lists and tables, with the running heads, the page numbers and the line breaks of the page measure thrown away. Nothing is rendered and nothing third-party is shipped — the page as it stands is one Enter away, in whatever this machine already opens PDFs with.",
   "category": "Viewers",
   "author": "xcommander",
@@ -23,7 +23,8 @@
       "extensions": [
         "pdf"
       ],
-      "priority": 20
+      "priority": 20,
+      "produces": "document"
     }
   ],
   "settings": [

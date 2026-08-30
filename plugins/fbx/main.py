@@ -406,7 +406,8 @@ def mesh3d(meshes: list, up_axis: str, unit_scale: float, note: dict,
     }
 
 
-@plugin.viewer("fbx.model", "Model", extensions=MODELS, priority=20)
+@plugin.viewer("fbx.model", "Model", extensions=MODELS, priority=20,
+               produces="model")
 def model(url: str) -> dict:
     loaded, refusal = _load(url)
     if refusal is not None:

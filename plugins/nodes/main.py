@@ -134,6 +134,7 @@ def _load(url: str):
     extensions=["json", "png", "tscn", "escn"],
     priority=5,
     probe=looks_like_a_graph,
+    produces="graph",
 )
 def graph(url: str) -> dict:
     document, refusal = _load(url)
