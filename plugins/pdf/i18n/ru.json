@@ -1,0 +1,9 @@
+{
+  "PDF as Markdown": "PDF как Markdown",
+  "Document": "Документ",
+  "A PDF read as a document rather than drawn as a page: headings, lists and tables, with the running heads, the page numbers and the line breaks of the page measure thrown away. Nothing is rendered and nothing third-party is shipped — the page as it stands is one Enter away, in whatever this machine already opens PDFs with.": "PDF, прочитанный как документ, а не нарисованный как страница: заголовки, списки и таблицы, без колонтитулов, номеров страниц и переносов строк, оставшихся от печатной колонки. Ничего не рендерится и ничего стороннего не поставляется — страница как она есть в одном Enter, в том, чем эта машина и так открывает PDF.",
+  "Pages to read at most": "Сколько страниц читать",
+  "Characters to show at most": "Сколько знаков показывать",
+  "Nought reads the whole file, which is what a document wants. A number is for the thousand-page manual: only that many pages are read and the reading says so at the top. Reading is lazy either way, so a long file costs its length only once.": "Ноль — весь файл, чего документ обычно и хочет. Число — для тысячестраничного руководства: прочитано будет только столько страниц, и чтение скажет об этом сверху. Чтение в любом случае ленивое, так что длинный файл платит за свою длину один раз.",
+  "Nought shows all of it. A limit cuts at the end of a line rather than mid-word, and the reading says it was cut.": "Ноль — показать всё. Ограничение режет по концу строки, а не посреди слова, и чтение говорит, что его обрезали."
+}
