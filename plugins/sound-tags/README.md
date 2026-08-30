@@ -3,9 +3,10 @@
 What a recording says it is: the title, who played it, the album and the year,
 the cover art inside the file — and what the container says about the sound.
 
-`Ctrl+Shift+O` in the sound viewer, or the button in its title bar. The same
-slide panel a document's structure opens in, because a recording has no
-structure and the two never want it at once.
+`O` in the sound viewer, or the button in its title bar — `Ctrl+Shift+O` in a
+panel, where a bare letter is the panel's own quick search. The same slide panel
+a document's structure opens in, because a recording has no structure and the
+two never want it at once.
 
 ## Why it is a plugin of its own, beside the viewer
 
@@ -67,13 +68,17 @@ bit depth at all, so it is only reported for a lossless file.
 **A genre is often a number.** `(17)` is Rock, and half the world still writes it
 that way.
 
-## What is left out, and said so
+## What is shown, and what is not read at all
 
-Everything named that this has no word for is **counted in a line at the foot**
-rather than dropped in silence — a summary that does not admit to being one is a
-claim. Not read: lyrics, ratings, ReplayGain, MusicBrainz identifiers, APE tags,
-ID3v1 (a v2 tag is in front of every file that has one), and Ogg, which the
-viewer does not play either.
+**Everything the file names is shown.** The ones worth a reader's eye are picked
+out and put at the top — title, who played it, the album, the year — and the
+rest goes underneath in *Everything else*, in the file's own words. It used to be
+counted instead, which told the reader something was being kept from them and
+then would not say what. *«а что мешает их отображать»* — nothing did.
+
+Genuinely not read, because nothing here parses them: APE tags, ID3v1 (a v2 tag
+stands in front of every file that has one), and Ogg — which the viewer does not
+play either.
 
 ## Checking it
 

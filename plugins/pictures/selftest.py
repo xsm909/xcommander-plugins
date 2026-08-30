@@ -431,6 +431,54 @@ def check_jpeg_facts():
     check("but a comment is still read", plain.text, [("Comment", "a note somebody left")])
 
 
+def check_everything():
+    """Everything the file carries, named — the half that was refused before."""
+    data = tiff_directory([
+        (0x010F, 2, 6, b"Canon\0"),
+        (0x0128, 3, 1, struct.pack(">H", 2) + b"\0\0"),
+        (0x0132, 2, 5, b"2026\0"),
+    ])
+    found = meta.read(jpeg_with(data))
+    rows = dict(meta.everything(found, {("main", 0x010F)}))
+    check("a tag the groups above already say is not said twice",
+          "Make" in rows, False)
+    check("one they do not is named and read", rows.get("Changed"), "2026")
+    check("and an enumeration comes back as a word",
+          rows.get("Resolution unit"), "inches")
+
+    # A tag nothing has a name for is still shown, as its number: `0xABCD` is
+    # less use than a name and far more use than nothing.
+    data = tiff_directory([(0xABCD, 3, 1, struct.pack(">H", 7) + b"\0\0")])
+    rows = dict(meta.everything(meta.read(jpeg_with(data)), set()))
+    check("a tag nobody named keeps its number", rows.get("Tag 0xABCD"), "7")
+
+
+def check_xmp():
+    """The second set of metadata, which used to be counted and refused."""
+    packet = """<?xml version="1.0"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+    xmlns:dc="http://purl.org/dc/elements/1.1/"
+    xmp:Rating="4">
+   <dc:subject>
+    <rdf:Bag>
+     <rdf:li>autumn</rdf:li>
+     <rdf:li>boston</rdf:li>
+    </rdf:Bag>
+   </dc:subject>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>"""
+    rows = dict(meta.read_xmp(packet))
+    check("a property written as an attribute", rows.get("Rating"), "4")
+    # A bag of two keywords is one line with two keywords on it, not four lines
+    # of RDF scaffolding: the shape of the XML is not a fact about the picture.
+    check("a bag of keywords, flattened", rows.get("Subject"), "autumn, boston")
+    check("nothing at all is not a failure", meta.read_xmp("not xml"), [])
+
+
 def check_gps():
     """A coordinate as a number somebody can paste into a map.
 
@@ -492,6 +540,8 @@ def main() -> int:
     print("the EXIF directory");    check_exif_reader()
     print("a JPEG's own words");    check_jpeg_facts()
     print("a PNG's own words");     check_png_facts()
+    print("everything else");       check_everything()
+    print("XMP");                   check_xmp()
     print("coordinates");           check_gps()
     print("readings in words");     check_readings()
     for folder in sys.argv[1:]:

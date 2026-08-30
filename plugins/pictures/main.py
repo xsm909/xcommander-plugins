@@ -202,6 +202,11 @@ def about(url: str) -> dict:
             note="This file's header could not be read: %s" % failure,
         )
 
+    # **Everything the file carries, and the chosen few first.** Withholding
+    # the rest and printing a count of it was the wrong half of a good idea:
+    # EXIF *can* run to hundreds of tags, so the ones worth a reader's eye are
+    # picked out and put at the top — but the rest goes underneath, named and
+    # read, rather than being turned into a number nobody can do anything with.
     groups = [
         _file_group(name, whole, found),
         _camera_group(found),
@@ -209,10 +214,50 @@ def about(url: str) -> dict:
         _when_group(found),
         _where_group(found),
         _made_group(found),
+        fact_group("Everything else", [
+            fact(label, value, wide=len(value) > 40)
+            for label, value in meta.everything(found, SHOWN)
+        ]),
+        _xmp_group(found),
     ]
     plugin.log("%s: %d tag(s), %.2fs"
                % (name, found.exif.count if found.exif else 0, time.time() - started))
     return facts([g for g in groups if g], note=_note(found, len(raw), whole))
+
+
+#: Which tags the groups above already say, so "everything else" is everything
+#: else rather than everything twice.
+SHOWN = {
+    ("main", 0x010F), ("main", 0x0110), ("main", 0x0112), ("main", 0x0131),
+    ("main", 0x013B), ("main", 0x8298), ("main", 0x010E), ("main", 0x0132),
+    ("exif", 0xA434), ("exif", 0xA433), ("exif", 0xA431),
+    ("exif", 0x829A), ("exif", 0x829D), ("exif", 0x8827), ("exif", 0x8833),
+    ("exif", 0x920A), ("exif", 0xA405), ("exif", 0x9204), ("exif", 0x8822),
+    ("exif", 0x9207), ("exif", 0x9209), ("exif", 0xA403), ("exif", 0x9286),
+    ("exif", 0x9003), ("exif", 0x9004), ("exif", 0x9011), ("exif", 0x9010),
+    ("exif", 0x9012),
+    ("gps", 0x0001), ("gps", 0x0002), ("gps", 0x0003), ("gps", 0x0004),
+    ("gps", 0x0005), ("gps", 0x0006),
+}
+
+
+def _xmp_group(found) -> dict:
+    """The second set of metadata, which Lightroom and Camera Raw write into.
+
+    It was counted and refused before — *"it also carries XMP, which is not read
+    here"* — which told the reader something was there and then would not show
+    it. There is nothing hard about it: XMP is XML, and the standard library
+    reads XML.
+    """
+    if not found.xmp:
+        return {}
+    try:
+        rows = meta.read_xmp(found.xmp)
+    except Exception:  # noqa: BLE001 - a damaged packet is one missing group
+        return {}
+    return fact_group("XMP", [
+        fact(label, value, wide=len(value) > 40) for label, value in rows
+    ])
 
 
 def _file_group(name: str, whole, found) -> dict:
@@ -360,17 +405,20 @@ def _user_comment(value) -> str:
 
 
 def _note(found, read: int, whole) -> str:
+    """The one line under the groups, and only where there is one to write.
+
+    It used to say how many tags the file held and that its XMP was not read —
+    two sentences that told the reader something was being kept from them
+    without saying what. Both are shown now, so neither is a note.
+    """
     remarks = []
     if found.exif is None and not found.text and not found.xmp:
         remarks.append("This file carries nothing beyond its own header.")
-    elif found.exif is not None:
-        # What is above is a choice out of what is there, and saying how much
-        # was left out is the difference between a summary and a claim.
-        remarks.append("%d tag(s) in the file." % found.exif.count)
-    if found.xmp:
-        remarks.append("It also carries XMP, which is not read here.")
     if isinstance(whole, int) and whole > read:
-        remarks.append("Read the first %s of it." % meta.size(read))
+        remarks.append(
+            "Read the first %s of it, which is where a picture keeps what it "
+            "says about itself." % meta.size(read)
+        )
     return " ".join(remarks) if remarks else ""
 
 

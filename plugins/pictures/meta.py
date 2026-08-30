@@ -638,3 +638,285 @@ def megapixels(width: int, height: int) -> str:
 
 
 __all__ = ["Exif", "Picture", "read", "read_tiff_tags"]
+
+
+# -- naming everything else -------------------------------------------------
+
+#: What each tag is called, for the ones a photograph actually carries. Not the
+#: whole of EXIF — several hundred of those exist and most were never written
+#: by anything — but every tag met in the corpus this was built against, plus
+#: the ones a camera writes as a matter of course.
+#:
+#: **A tag with no name here is still shown**, as its number. The panel's job is
+#: to hand over what the file says, and "0xA435" is less use than "Lens serial
+#: number" and far more use than nothing.
+TAG_NAMES = {
+    0x0100: "Image width", 0x0101: "Image height", 0x0102: "Bits per sample",
+    0x0103: "Compression", 0x0106: "Photometric interpretation",
+    0x010E: "Description", 0x010F: "Make", 0x0110: "Model",
+    0x0111: "Strip offsets", 0x0112: "Orientation", 0x0115: "Samples per pixel",
+    0x0116: "Rows per strip", 0x0117: "Strip byte counts",
+    0x011A: "X resolution", 0x011B: "Y resolution", 0x011C: "Planar setting",
+    0x0128: "Resolution unit", 0x012D: "Transfer function",
+    0x0131: "Software", 0x0132: "Changed", 0x013B: "Artist",
+    0x013E: "White point", 0x013F: "Primary chromaticities",
+    0x0201: "Thumbnail offset", 0x0202: "Thumbnail length",
+    0x0211: "YCbCr coefficients", 0x0212: "YCbCr subsampling",
+    0x0213: "YCbCr positioning", 0x0214: "Reference black and white",
+    0x8298: "Copyright", 0x8769: "EXIF directory", 0x8825: "GPS directory",
+    0x83BB: "IPTC", 0x8773: "Colour profile", 0x02BC: "XMP",
+    0x829A: "Exposure time", 0x829D: "F number", 0x8822: "Exposure program",
+    0x8824: "Spectral sensitivity", 0x8827: "ISO", 0x8828: "OECF",
+    0x8830: "Sensitivity type", 0x8831: "Standard output sensitivity",
+    0x8832: "Recommended exposure index", 0x8833: "ISO speed",
+    0x9000: "EXIF version", 0x9003: "Taken", 0x9004: "Digitised",
+    0x9010: "Offset from UTC", 0x9011: "Offset when taken",
+    0x9012: "Offset when digitised",
+    0x9101: "Components", 0x9102: "Compressed bits per pixel",
+    0x9201: "Shutter speed", 0x9202: "Aperture", 0x9203: "Brightness",
+    0x9204: "Exposure bias", 0x9205: "Widest aperture",
+    0x9206: "Subject distance", 0x9207: "Metering mode",
+    0x9208: "Light source", 0x9209: "Flash", 0x920A: "Focal length",
+    0x9214: "Subject area", 0x927C: "Maker note", 0x9286: "Comment",
+    0x9290: "Fraction of a second", 0x9291: "Fraction when taken",
+    0x9292: "Fraction when digitised",
+    0xA000: "Flashpix version", 0xA001: "Colour space",
+    0xA002: "Width in pixels", 0xA003: "Height in pixels",
+    0xA004: "Related sound file", 0xA20B: "Flash energy",
+    0xA20E: "Focal plane X resolution", 0xA20F: "Focal plane Y resolution",
+    0xA210: "Focal plane resolution unit", 0xA214: "Subject location",
+    0xA215: "Exposure index", 0xA217: "Sensing method",
+    0xA300: "File source", 0xA301: "Scene type",
+    0xA302: "Colour filter array", 0xA401: "Custom rendering",
+    0xA402: "Exposure mode", 0xA403: "White balance",
+    0xA404: "Digital zoom", 0xA405: "Full-frame equivalent",
+    0xA406: "Scene capture type", 0xA407: "Gain control",
+    0xA408: "Contrast", 0xA409: "Saturation", 0xA40A: "Sharpness",
+    0xA40B: "Device settings", 0xA40C: "Subject distance range",
+    0xA420: "Image identifier", 0xA430: "Camera owner",
+    0xA431: "Body serial number", 0xA432: "Lens specification",
+    0xA433: "Lens make", 0xA434: "Lens", 0xA435: "Lens serial number",
+    0xA460: "Composite image", 0xC4A5: "Print image matching",
+}
+
+#: The GPS directory numbers its tags from one, so it needs its own table.
+GPS_NAMES = {
+    0x0000: "GPS version", 0x0001: "Latitude reference", 0x0002: "Latitude",
+    0x0003: "Longitude reference", 0x0004: "Longitude",
+    0x0005: "Altitude reference", 0x0006: "Altitude", 0x0007: "GPS time",
+    0x0008: "Satellites", 0x0009: "Receiver status", 0x000A: "Measure mode",
+    0x000B: "Precision", 0x000C: "Speed unit", 0x000D: "Speed",
+    0x000E: "Direction of travel reference", 0x000F: "Direction of travel",
+    0x0010: "Image direction reference", 0x0011: "Image direction",
+    0x0012: "Map datum", 0x0016: "Destination latitude reference",
+    0x0017: "Destination latitude", 0x001B: "Processing method",
+    0x001C: "Area", 0x001D: "GPS date", 0x001E: "Differential correction",
+    0x001F: "Horizontal error",
+}
+
+#: Tags that are a pointer, an offset or a length: plumbing, not a fact about
+#: the photograph, and the only thing left out of "everything else".
+PLUMBING = {0x8769, 0x8825, 0xA005, 0x0111, 0x0117, 0x0201, 0x0202, 0x927C,
+            0x83BB, 0x8773, 0x02BC}
+
+
+#: The enumerations worth turning back into words. Only the ones that turn up:
+#: a number under a name is what the file holds, but "2" under "Resolution
+#: unit" is a fact nobody can use, and "inches" is the same fact.
+ENUMS = {
+    0x0128: {1: "none", 2: "inches", 3: "centimetres"},
+    0xA210: {1: "none", 2: "inches", 3: "centimetres"},
+    0x0103: {1: "none", 6: "JPEG", 7: "JPEG", 5: "LZW", 8: "deflate"},
+    0x0112: ORIENTATION,
+    0x8822: PROGRAM,
+    0x9207: METERING,
+    0x9209: FLASH,
+    0xA403: WHITE_BALANCE,
+    0x9208: {0: "unknown", 1: "daylight", 2: "fluorescent", 3: "tungsten",
+             4: "flash", 9: "fine weather", 10: "cloudy", 11: "shade",
+             17: "standard A", 18: "standard B", 19: "standard C",
+             20: "D55", 21: "D65", 22: "D75", 23: "D50", 24: "studio tungsten",
+             255: "other"},
+    0xA001: {1: "sRGB", 2: "Adobe RGB", 0xFFFF: "uncalibrated"},
+    0x8830: {0: "unknown", 1: "standard output sensitivity",
+             2: "recommended exposure index", 3: "ISO speed",
+             4: "standard and recommended", 5: "standard and ISO",
+             6: "recommended and ISO", 7: "all three"},
+    0xA217: {1: "not defined", 2: "one-chip colour", 3: "two-chip colour",
+             4: "three-chip colour", 5: "colour sequential",
+             7: "trilinear", 8: "colour sequential linear"},
+    0xA300: {1: "another device", 2: "a scanner", 3: "a camera"},
+    0xA301: {1: "a photograph"},
+    0xA401: {0: "normal", 1: "custom"},
+    0xA402: {0: "automatic", 1: "manual", 2: "auto bracket"},
+    0xA406: {0: "standard", 1: "landscape", 2: "portrait", 3: "night"},
+    0xA407: {0: "none", 1: "low gain up", 2: "high gain up",
+             3: "low gain down", 4: "high gain down"},
+    0xA408: {0: "normal", 1: "soft", 2: "hard"},
+    0xA409: {0: "normal", 1: "low", 2: "high"},
+    0xA40A: {0: "normal", 1: "soft", 2: "hard"},
+    0xA40C: {0: "unknown", 1: "macro", 2: "close", 3: "distant"},
+    0x0213: {1: "centred", 2: "co-sited"},
+}
+
+
+def tag_name(tag: int, where: str) -> str:
+    table = GPS_NAMES if where == "gps" else TAG_NAMES
+    return table.get(tag, "Tag 0x%04X" % tag)
+
+
+def as_text(value: Any) -> str:
+    """One tag's value as something a person can read.
+
+    Rationals as the fraction they are unless they divide evenly, a long list
+    cut with an ellipsis, and raw bytes as their length — because a hundred
+    bytes of maker note rendered as mojibake is worse than saying how much of
+    it there is.
+    """
+    if isinstance(value, tuple) and len(value) == 2:
+        if not value[1]:
+            return "%d" % value[0]
+        if value[0] % value[1] == 0:
+            return "%g" % (value[0] // value[1])
+        return "%g" % round(value[0] / value[1], 4)
+    if isinstance(value, bytes):
+        text = value.split(b"\0", 1)[0]
+        if text and all(32 <= b < 127 for b in text):
+            return text.decode("ascii")
+        # A short undefined value is a number written as bytes — `/FileSource`
+        # is one of them — and its number is the fact. Anything longer is a
+        # maker note, and a hundred bytes rendered as mojibake is worse than
+        # saying how much of it there is.
+        if 1 <= len(value) <= 4:
+            return str(int.from_bytes(value, "big"))
+        return "%d bytes" % len(value)
+    if isinstance(value, list):
+        shown = [as_text(v) for v in value[:8]]
+        return ", ".join(shown) + (", …" if len(value) > 8 else "")
+    if isinstance(value, float):
+        return "%g" % round(value, 6)
+    return str(value)
+
+
+def everything(found: "Picture", shown: set) -> List[Tuple[str, str]]:
+    """Every tag the file carries that is not already above, named and read.
+
+    **Withholding these was a mistake**, and it is worth saying why it looked
+    reasonable: EXIF *can* run to hundreds of tags, so the reader was written to
+    choose. But a file with eight tags in it and six of them shown does not need
+    choosing — it needs the other two — and telling somebody there are eight
+    without saying which is the worst of both.
+    """
+    out: List[Tuple[str, str]] = []
+    exif = found.exif
+    if exif is None:
+        return out
+    for where, table in (("main", exif.main), ("exif", exif.exif),
+                         ("gps", exif.gps)):
+        for tag in sorted(table):
+            if tag in PLUMBING or (where, tag) in shown:
+                continue
+            value = table[tag]
+            # Only a plain number can name an enumeration — a lens
+            # specification is a list, and a list is not a key.
+            named = (
+                ENUMS.get(tag, {}).get(value)
+                if where != "gps" and isinstance(value, int)
+                and not isinstance(value, bool)
+                else None
+            )
+            text = named or as_text(value)
+            if text:
+                out.append((tag_name(tag, where), text))
+    return out
+
+
+# -- XMP, which is a second set of metadata beside the first ----------------
+
+#: The namespaces worth naming, so a property reads as `Rating` rather than as
+#: `{http://ns.adobe.com/xap/1.0/}Rating`. Anything else keeps its prefix,
+#: which is still better than its URL.
+XMP_NAMESPACES = {
+    "http://ns.adobe.com/xap/1.0/": "",
+    "http://purl.org/dc/elements/1.1/": "",
+    "http://ns.adobe.com/photoshop/1.0/": "",
+    "http://ns.adobe.com/exif/1.0/aux/": "",
+    "http://cipa.jp/exif/1.0/": "",
+    "http://ns.adobe.com/tiff/1.0/": "",
+    "http://ns.adobe.com/exif/1.0/": "",
+    "http://ns.adobe.com/camera-raw-settings/1.0/": "Camera Raw: ",
+    "http://ns.adobe.com/xap/1.0/mm/": "History: ",
+    "http://ns.adobe.com/xap/1.0/sType/ResourceEvent#": "History: ",
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#": "",
+    "http://ns.adobe.com/lightroom/1.0/": "",
+    "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/": "IPTC: ",
+}
+
+#: Structure rather than content: the wrappers RDF puts round a list, and the
+#: history of edits, which is a hundred entries of nothing anybody reads.
+XMP_SKIP = {"RDF", "Description", "Bag", "Seq", "Alt", "li", "xmpmeta"}
+
+
+def read_xmp(text: str) -> List[Tuple[str, str]]:
+    """Every property in an XMP packet, as a name and what it says.
+
+    **Read rather than counted**, which is what it should have been from the
+    start: XMP is where Lightroom and Camera Raw put the keywords, the rating,
+    the copyright and the edit — and a note saying "it also carries XMP" tells
+    the reader there is something there and then refuses to show it.
+
+    Flattened, because the shape of RDF is not a fact about the photograph: a
+    `dc:subject` holding a bag of three keywords is one line with three
+    keywords on it, not four lines of scaffolding.
+    """
+    import xml.etree.ElementTree as ElementTree
+
+    try:
+        root = ElementTree.fromstring(text.strip())
+    except Exception:  # noqa: BLE001 - a damaged packet is one missing group
+        return []
+
+    found: List[Tuple[str, str]] = []
+    seen: set = set()
+
+    def name_of(tag: str) -> Optional[str]:
+        if not tag.startswith("{"):
+            return None if tag in XMP_SKIP else tag
+        namespace, _, local = tag[1:].partition("}")
+        if local in XMP_SKIP:
+            return None
+        prefix = XMP_NAMESPACES.get(namespace)
+        if prefix is None:
+            prefix = namespace.rstrip("/#").rsplit("/", 1)[-1] + ": "
+        return prefix + local[0].upper() + local[1:]
+
+    def words(element) -> str:
+        """Everything written under one property, as one line."""
+        parts = []
+        if element.text and element.text.strip():
+            parts.append(element.text.strip())
+        for child in element.iter():
+            if child is element:
+                continue
+            if child.text and child.text.strip():
+                parts.append(child.text.strip())
+        return ", ".join(dict.fromkeys(parts))
+
+    def add(label: Optional[str], value: str) -> None:
+        if not label or not value or (label, value) in seen:
+            return
+        seen.add((label, value))
+        found.append((label, value))
+
+    for element in root.iter():
+        # A property written as an attribute, which is how most of them are.
+        for attribute, value in element.attrib.items():
+            if attribute.endswith("}about") or attribute.endswith("}parseType"):
+                continue
+            add(name_of(attribute), value.strip())
+        label = name_of(element.tag)
+        if label is not None and len(element):
+            add(label, words(element))
+        elif label is not None:
+            add(label, (element.text or "").strip())
+    return found

@@ -64,3 +64,31 @@ Making a `.xcf` to test with, GIMP being installed:
 interactive script-fu prompt and never returns, which looks exactly like a hang.
 The Python interpreter (`python-fu-eval`) hangs the same way even with it, so
 script-fu is the route that works.
+
+
+## What a photograph says about itself
+
+`meta.py`, and the panel on the left of the viewer — `O`, or the button in the
+title bar. Camera, lens, exposure, when, where, who made it, out of the EXIF of
+a JPEG, a HEIC, a PNG, a WebP or a TIFF; the header alone out of the rest.
+
+**Every road ends at the same place.** All five containers hand over the same
+thing — a TIFF directory — so each container reader is a dozen lines whose only
+job is to find those bytes, and one reader understands them. HEIC is the awkward
+one: `iinf` says which item is the EXIF, `iloc` says where in the file it sits,
+and `ispe`, buried in the properties, is the only place the size is written down.
+
+**Everything the file carries is shown**, and the chosen few first. Withholding
+the rest and printing a count of it was the wrong half of a good idea: EXIF *can*
+run to hundreds of tags, so the ones worth an eye are picked out and put at the
+top — but the rest goes underneath in *Everything else*, named and read, with the
+enumerations turned back into words (`2` under "Resolution unit" is a fact nobody
+can use; "inches" is the same fact). A tag nothing has a name for keeps its
+number, which is less use than a name and far more use than nothing.
+
+**XMP is read too.** It is where Lightroom and Camera Raw put the keywords, the
+rating, the copyright and the edit, and it is XML — which the standard library
+reads. It used to say "it also carries XMP, which is not read here", which is a
+sentence that tells you something is there and then refuses to show it.
+
+Nothing here decodes a pixel: it reads the head of the file and stops.

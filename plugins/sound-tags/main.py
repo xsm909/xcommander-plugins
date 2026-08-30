@@ -78,6 +78,13 @@ def about(url: str) -> dict:
         _tags_group(found),
         _file_group(name, whole, found),
         _sound_group(found),
+        # **Everything the file names, and the ones worth an eye first.** They
+        # were counted here before, which told the reader something was being
+        # kept from them without saying what.
+        fact_group("Everything else", [
+            fact(key, value, wide=len(value) > 40)
+            for key, value in sorted(found.extra.items())
+        ]),
     ]
     plugin.log(
         "%s: %s, %d tag(s)%s, %.2fs"
@@ -160,16 +167,10 @@ def _trim(value: float) -> str:
 
 
 def _note(found) -> str:
+    """The one line under the groups, and only where there is one to write."""
     remarks = list(found.notes)
-    if not found.tags and not found.picture:
+    if not found.tags and not found.picture and not found.extra:
         remarks.append("It carries no tags — only what its header says.")
-    if found.extra:
-        # **Said rather than shown.** What is above is a choice out of what is
-        # there, and a summary that does not admit to being one is a claim.
-        remarks.append(
-            "%d more field(s) the file names: %s."
-            % (len(found.extra), ", ".join(sorted(found.extra)[:8]))
-        )
     return " ".join(remarks) if remarks else ""
 
 

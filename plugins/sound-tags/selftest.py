@@ -260,7 +260,8 @@ def m4a(moov_first: bool = True) -> bytes:
                 + ilst_item("©ART".encode("latin-1"), b"Tennessee Ernie Ford")
                 + ilst_item(b"trkn", struct.pack(">HHH", 0, 3, 12), kind=0)
                 + ilst_item(b"covr", cover, kind=13)
-                + ilst_item(b"----", b"something else"))
+                + ilst_item(b"desc", b"something else")
+                + ilst_item(b"----", b"a freeform one"))
     meta = atom(b"meta", b"\0\0\0\0" + atom(b"hdlr", b"\0" * 24) + ilst)
     udta = atom(b"udta", meta)
     moov = atom(b"moov", mvhd + trak + udta)
@@ -281,7 +282,13 @@ def check_mp4():
     check("its artist", found.tags.get("artist"), "Tennessee Ernie Ford")
     check("a track of a set", found.tags.get("track"), "3 of 12")
     check("its cover", found.picture, cover)
-    check("an atom nobody named is counted", "----" in found.extra, True)
+    check("an atom nobody has a word for is kept as it stands",
+          found.extra.get("desc"), "something else")
+    # `----` is not a name: it is the box a freeform atom keeps its real name
+    # in, one level further down. Showing the envelope would be showing the
+    # wrong thing rather than showing more.
+    check("and the freeform envelope is not one of them",
+          "----" in found.extra, False)
 
     # The same file with its atoms after the sound, which is what anything
     # recording as it goes has to write.
