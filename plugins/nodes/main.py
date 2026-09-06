@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -53,7 +53,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from xcommander import Plugin, error, nodes  # noqa: E402
+from xverb import Plugin, error, nodes  # noqa: E402
 
 import comfyapi  # noqa: E402
 import comfyui  # noqa: E402
@@ -65,7 +65,7 @@ import png  # noqa: E402
 
 from claim import READERS, looks_like_a_graph  # noqa: E402
 
-plugin = Plugin("org.xcommander.nodes", "Node graphs")
+plugin = Plugin("org.xverb.nodes", "Node graphs")
 
 #: Files are read whole; a workflow is a few hundred kilobytes. The cap is for
 #: the one that is not.

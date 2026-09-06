@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -37,11 +37,11 @@ from urllib.parse import unquote, urlparse
 
 import difflib
 
-from xcommander import Plugin, notice, respond, table, text
+from xverb import Plugin, notice, respond, table, text
 
 VIEW_ID = "compare.folders"
 
-plugin = Plugin("org.xcommander.compare", "Compare folders")
+plugin = Plugin("org.xverb.compare", "Compare folders")
 
 #: What a row is. The glyph is the whole of the answer at a glance.
 ONLY_LEFT = "<"

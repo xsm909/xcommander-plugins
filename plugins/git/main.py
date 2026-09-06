@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -35,7 +35,7 @@ import subprocess
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from xcommander import (
+from xverb import (
     DIRECTORY,
     ask,
     back,
@@ -69,7 +69,7 @@ from xcommander import (
 
 VIEW_ID = "git.log"
 
-plugin = Plugin("org.xcommander.git", "Git")
+plugin = Plugin("org.xverb.git", "Git")
 
 #: Field separator inside one log line. A unit separator cannot appear in a
 #: name, a date or a subject, which `|` and tabs certainly can.
@@ -84,7 +84,7 @@ TIMEOUT = 20
 
 
 try:  # noqa: SIM105 - the host's own, where the host is new enough to have it
-    from xcommander import file_url
+    from xverb import file_url
 except ImportError:  # pragma: no cover - a host older than 1.0.0.301
     # **A compatibility shim, not a second implementation.** `file_url` arrived
     # in the SDK on 2026-08-18 with the bug it fixes; a plugin is installed

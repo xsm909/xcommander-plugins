@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -36,12 +36,12 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from xcommander import Plugin, error  # noqa: E402
+from xverb import Plugin, error  # noqa: E402
 
 import eps  # noqa: E402
 import svg  # noqa: E402
 
-plugin = Plugin("org.xcommander.vector", "Vector graphics")
+plugin = Plugin("org.xverb.vector", "Vector graphics")
 
 #: A drawing is text and compresses well; the cap is for the one that is a map
 #: of a country.

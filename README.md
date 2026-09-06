@@ -1,14 +1,14 @@
-# xcommander plugins
+# xverb plugins
 
-Extensions for [xcommander](https://github.com/xsm909/xcommander), one folder
+Extensions for [xverb](https://github.com/xsm909/xverb), one folder
 per plugin under [`plugins/`](plugins).
 
 ## Installing
 
-In xcommander: **Settings → Plugins → Install from a repository…**, then paste
+In xverb: **Settings → Plugins → Install from a repository…**, then paste
 
 ```
-xsm909/xcommander-plugins
+xsm909/xverb-plugins
 ```
 
 The app downloads this repository, lists what it finds, and installs the ones
@@ -36,7 +36,7 @@ else: the app runs one pinned interpreter rather than the machine's own, so a
 plugin written once behaves the same everywhere. A plugin needing a third-party
 package has to vendor it next to `main.py`.
 
-See [the plugin documentation](https://github.com/xsm909/xcommander/blob/main/docs/plugins.md)
+See [the plugin documentation](https://github.com/xsm909/xverb/blob/main/docs/plugins.md)
 for the manifest, the extension points and the RPC protocol.
 
 ## Adding one

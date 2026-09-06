@@ -78,7 +78,7 @@ follow, and they are the whole difference:
   the application says the copy has finished. Until that moment the archive on
   disk is exactly as it was, and then it is replaced in one rename.
 
-  You may see a `.xcommander-part` beside an archive while a pack is running.
+  You may see a `.xverb-part` beside an archive while a pack is running.
   If the application ever stops mid-pack it stays there: nothing that was in the
   archive is lost, and the part file is an ordinary tar that any tool can open.
   The next pack into that archive throws it away and starts from what the archive

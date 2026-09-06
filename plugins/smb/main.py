@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""SMB2 as an xcommander file system.
+"""SMB2 as an xverb file system.
 
 The protocol itself lives in `smb2.py`; this file is the adapter between it and
 what the host asks for. There is no third-party code here or beside it: SMB has
@@ -34,12 +34,12 @@ import posixpath
 import time
 from typing import Dict, List, Optional, Tuple
 
-from xcommander import DIRECTORY, Entry, FILE, FileSystem, LINK, Plugin, Root, RpcError
-from xcommander.fs import query_of, split_url
+from xverb import DIRECTORY, Entry, FILE, FileSystem, LINK, Plugin, Root, RpcError
+from xverb.fs import query_of, split_url
 
 from smb2 import SmbError, Smb2Connection
 
-plugin = Plugin("org.xcommander.smb")
+plugin = Plugin("org.xverb.smb")
 
 #: Connections are dropped after this long unused. SMB servers close idle
 #: sessions themselves, and reconnecting is cheap next to holding one open.

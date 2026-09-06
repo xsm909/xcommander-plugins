@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -176,7 +176,7 @@ def authenticate_message(
     domain: str,
     challenge: bytes,
     target_info: bytes,
-    workstation: str = "XCOMMANDER",
+    workstation: str = "XVERB",
     client_challenge: Optional[bytes] = None,
 ) -> Tuple[bytes, bytes]:
     """Type 3, plus the session key the caller needs for SMB signing."""

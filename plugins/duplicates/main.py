@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -37,7 +37,7 @@ import time
 from typing import Dict, List, Optional
 from urllib.parse import quote, unquote, urlparse
 
-from xcommander import (
+from xverb import (
     Plugin,
     cell,
     column,
@@ -52,7 +52,7 @@ from xcommander import (
 
 VIEW_ID = "duplicates.find"
 
-plugin = Plugin("org.xcommander.duplicates", "Find duplicates")
+plugin = Plugin("org.xverb.duplicates", "Find duplicates")
 
 #: How often a scan that is still running redraws what it has found.
 PUSH_SECONDS = 0.6
@@ -67,7 +67,7 @@ LEAST_BYTES = 1024
 
 
 try:  # noqa: SIM105 - the host's own, where the host is new enough to have it
-    from xcommander import file_url
+    from xverb import file_url
 except ImportError:  # pragma: no cover - a host older than 1.0.0.301
     # **A compatibility shim, not a second implementation.** `file_url` arrived
     # in the SDK on 2026-08-18 with the bug it fixes; a plugin is installed

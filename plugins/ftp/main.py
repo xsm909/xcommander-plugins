@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""FTP transport for xcommander.
+"""FTP transport for xverb.
 
 This is the reference example for the whole plugin idea: FTP is not built into
 the core, it is a plugin that registers the ``ftp:`` scheme and implements the
@@ -32,8 +32,8 @@ import posixpath
 import time
 from typing import Dict, List, Optional
 
-from xcommander import DIRECTORY, Entry, FILE, FileSystem, LINK, Plugin, Root, RpcError
-from xcommander.fs import query_of, split_url
+from xverb import DIRECTORY, Entry, FILE, FileSystem, LINK, Plugin, Root, RpcError
+from xverb.fs import query_of, split_url
 
 
 def _flag(options: Dict[str, str], key: str, default: bool) -> bool:
@@ -42,7 +42,7 @@ def _flag(options: Dict[str, str], key: str, default: bool) -> bool:
         return default
     return value.lower() in ("1", "true", "yes", "on")
 
-plugin = Plugin("org.xcommander.ftp", "FTP")
+plugin = Plugin("org.xverb.ftp", "FTP")
 
 # Connections idle longer than this are reopened rather than trusted. The
 # manifest offers it as a setting, so a server that hangs up sooner than the

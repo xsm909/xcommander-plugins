@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -33,9 +33,9 @@ import shutil
 import subprocess
 from typing import Callable, List, Optional
 
-from xcommander import Plugin, markdown
+from xverb import Plugin, markdown
 
-plugin = Plugin("org.xcommander.sysinfo")
+plugin = Plugin("org.xverb.sysinfo")
 
 #: Nothing here is worth waiting on. A hung `system_profiler` must not hang the
 #: report; it just costs that one row. The manifest offers it as a setting,

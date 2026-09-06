@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -38,7 +38,7 @@ import hashlib  # noqa: E402
 import struct  # noqa: E402
 from urllib.parse import quote  # noqa: E402
 
-from xcommander import Plugin, error, markdown  # noqa: E402
+from xverb import Plugin, error, markdown  # noqa: E402
 
 import animation  # noqa: E402
 import fbxfile  # noqa: E402
@@ -53,7 +53,7 @@ from scene import Scene, summarise  # noqa: E402
 #: is, is the reader's business and nobody else's.
 MODELS = ["fbx", "glb", "gltf", "obj"]
 
-plugin = Plugin("org.xcommander.fbx", "FBX")
+plugin = Plugin("org.xverb.fbx", "FBX")
 
 #: Files are read whole. The largest FBX anyone has pointed this at is a
 #: megabyte and a half; the cap is for the one that is not.

@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -62,7 +62,7 @@ SYSTEM = legacynames.SYSTEM
 #: file a rewrite is assembled in. Beside the archive rather than in the system
 #: temporary folder: a rename within one directory is atomic, and a rename
 #: across volumes is a copy that can run out of room half way through.
-PART = ".xcommander-part"
+PART = ".xverb-part"
 
 #: Compression by the extension that names it. The value is what goes after the
 #: colon in a `tarfile` mode, and an empty one is a plain tar.
@@ -405,7 +405,7 @@ class Staging:
 
     **Why it is safe to leave lying about.** The archive itself is not touched
     until that moment, and then it is replaced in one rename. A crash half way
-    through a pack leaves the archive as it was and a `.xcommander-part` beside
+    through a pack leaves the archive as it was and a `.xverb-part` beside
     it — nothing is lost that was there before, and what is in the part file can
     be looked at with any tar tool.
     """

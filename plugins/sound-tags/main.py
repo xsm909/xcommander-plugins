@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -35,11 +35,11 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from xcommander import Plugin, fact, fact_group, facts  # noqa: E402
+from xverb import Plugin, fact, fact_group, facts  # noqa: E402
 
 import tags  # noqa: E402
 
-plugin = Plugin("org.xcommander.soundtags", "Sound tags")
+plugin = Plugin("org.xverb.soundtags", "Sound tags")
 
 #: Every format the sound viewer offers to play, and a few it does not — a file
 #: nobody can play still says what it is, and that is worth more than a refusal.

@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -62,7 +62,7 @@ UTF8_FLAG = 0x800
 #: Beside it rather than in the system temporary folder on purpose: a rename
 #: within one directory is atomic, and a rename across volumes is a copy that
 #: can run out of room half way through the archive it is replacing.
-PART = ".xcommander-part"
+PART = ".xverb-part"
 
 
 # -- names -----------------------------------------------------------------

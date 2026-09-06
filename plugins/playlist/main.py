@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -43,9 +43,9 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from parse import Track, clock, decode, leaf, read as read_tracks
 
-from xcommander import DIRECTORY, Entry, FILE, FileSystem, Plugin, RpcError, error, table
+from xverb import DIRECTORY, Entry, FILE, FileSystem, Plugin, RpcError, error, table
 
-plugin = Plugin("org.xcommander.playlist", "Playlists")
+plugin = Plugin("org.xverb.playlist", "Playlists")
 
 # A playlist is a text file; anything past this is not one, and reading it whole
 # would be reading somebody's mp3 as though it were a list.

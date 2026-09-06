@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -45,9 +45,9 @@ from html.parser import HTMLParser
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse, urlunparse
 
-from xcommander import DIRECTORY, Entry, FILE, FileSystem, Plugin, Root, RpcError
+from xverb import DIRECTORY, Entry, FILE, FileSystem, Plugin, Root, RpcError
 
-plugin = Plugin("org.xcommander.web", "Web resources")
+plugin = Plugin("org.xverb.web", "Web resources")
 
 #: How much of a page is read before giving up on parsing it. A page larger
 #: than this is not a page, it is a download that happens to be text/html.
@@ -111,7 +111,7 @@ class Fetcher:
 
     def _headers(self, compress: bool = True) -> dict:
         return {
-            "User-Agent": setting("userAgent", "xcommander-web/1.0"),
+            "User-Agent": setting("userAgent", "xverb-web/1.0"),
             "Accept": "*/*",
             # Compression is welcome for a page, which is read whole and
             # parsed. It is poison for a byte range: the offsets the host asks
@@ -136,7 +136,7 @@ class Fetcher:
         # that is what the standard says an absent file means.
         if rules is None:
             return True
-        return rules.can_fetch(setting("userAgent", "xcommander-web/1.0"), url)
+        return rules.can_fetch(setting("userAgent", "xverb-web/1.0"), url)
 
     def _load_robots(self, origin: str):
         rules = urllib.robotparser.RobotFileParser()

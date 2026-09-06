@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -38,7 +38,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from xcommander import (  # noqa: E402
+from xverb import (  # noqa: E402
     Plugin,
     error,
     fact,
@@ -54,7 +54,7 @@ import tga  # noqa: E402
 import tiff  # noqa: E402
 import xcf  # noqa: E402
 
-plugin = Plugin("org.xcommander.pictures", "Pictures")
+plugin = Plugin("org.xverb.pictures", "Pictures")
 
 #: A GIMP file keeps every layer at full size, so it is several times the
 #: picture. This is generous on purpose and still finite.

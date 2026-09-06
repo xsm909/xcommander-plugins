@@ -1,11 +1,11 @@
 {
-  "id": "org.xcommander.web",
+  "id": "org.xverb.web",
   "name": "Web resources",
   "version": "1.0.1",
   "description": "Opens a web page as a folder of the things it is made of — images, scripts, stylesheets, and the pages it links to. Read and copy; nothing is ever written back.",
   "category": "Transports",
-  "author": "xcommander",
-  "homepage": "https://github.com/xsm909/xcommander-plugins",
+  "author": "xverb",
+  "homepage": "https://github.com/xsm909/xverb-plugins",
   "apiVersion": 1,
   "runtime": "python",
   "entry": "main.py",
@@ -100,7 +100,7 @@
       "key": "userAgent",
       "label": "Identify as",
       "type": "text",
-      "default": "xcommander-web/1.0 (+https://github.com/xsm909/xcommander)",
+      "default": "xverb-web/1.0 (+https://github.com/xsm909/xverb)",
       "note": "Sent as User-Agent. Some sites answer differently, or not at all, without one they recognise."
     }
   ]

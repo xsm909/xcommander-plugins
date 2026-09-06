@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -39,13 +39,13 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from xcommander import Plugin, error, markdown  # noqa: E402
+from xverb import Plugin, error, markdown  # noqa: E402
 
 import pdfcrypt  # noqa: E402
 import pdfdoc  # noqa: E402
 import pdfmd  # noqa: E402
 
-plugin = Plugin("org.xcommander.pdf", "PDF as Markdown")
+plugin = Plugin("org.xverb.pdf", "PDF as Markdown")
 
 #: A PDF is mostly pictures by weight, and this viewer reads none of them — but
 #: the file has to be read whole to be read at all, because the table saying

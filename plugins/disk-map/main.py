@@ -1,6 +1,6 @@
 # Copyright (C) 2026 xsm909
 #
-# This file is part of xcommander-plugins.
+# This file is part of xverb-plugins.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -38,7 +38,7 @@ from collections import deque
 from typing import Dict, List, Optional
 from urllib.parse import quote, unquote, urlparse
 
-from xcommander import (
+from xverb import (
     Plugin,
     button,
     chart,
@@ -52,7 +52,7 @@ from xcommander import (
 
 VIEW_ID = "diskmap.rings"
 
-plugin = Plugin("org.xcommander.diskmap", "Disk map")
+plugin = Plugin("org.xverb.diskmap", "Disk map")
 
 
 # -- what a scan builds -------------------------------------------------------
