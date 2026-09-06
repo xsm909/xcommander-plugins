@@ -5,7 +5,7 @@
   "description": "Browse and transfer over SMB2. Set up connections from Drives and connections.",
   "category": "Transports",
   "author": "xverb",
-  "homepage": "https://github.com/xsm909/xverb",
+  "homepage": "https://github.com/xsm909/xverb-plugins",
   "apiVersion": 1,
   "runtime": "python",
   "entry": "main.py",
