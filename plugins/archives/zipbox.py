@@ -53,6 +53,7 @@ AUTO = legacynames.AUTO
 OEM = legacynames.OEM
 WINDOWS = legacynames.WINDOWS
 LITERAL = legacynames.LITERAL
+SYSTEM = legacynames.SYSTEM
 
 #: The flag an archiver sets when it wrote the name in UTF-8.
 UTF8_FLAG = 0x800

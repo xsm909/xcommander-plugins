@@ -25,25 +25,76 @@ wrong way round a file cannot be found again — which is not a cosmetic matter.
 
 What is shared is the *deciding*, so it lives here and each format brings its own
 bytes. Nothing is guessed for a name that says what it is.
+
+**And the machine gets a say.** The readings tried used to be a fixed three,
+written for archives made in Russia, so a German or Polish Windows never had its
+own page among them at all. `Auto` now tries this machine's page as well and
+prefers it on a tie, and `System` is that page outright for when the guessing
+gets it wrong — which it will, because an archive carries the code page of the
+machine that *wrote* it and only a person looking at the names can settle that.
 """
 
 from __future__ import annotations
 
-from typing import Optional
+import locale
+import sys
+from typing import Optional, Tuple
 
 #: How a name with nothing declaring its encoding should be read.
 AUTO = "auto"
 OEM = "oem"
 WINDOWS = "windows"
 LITERAL = "literal"
+SYSTEM = "system"
 
-#: The readings worth trying, in the order they are preferred on a tie.
+#: The readings worth trying wherever the machine's own is not one of them.
 #:
 #: UTF-8 is in the list and is first because plenty of archivers wrote UTF-8
 #: names without setting the flag that says so — the `zip` on every Linux box
 #: does — and because a run of code-page bytes almost never happens to be valid
 #: UTF-8, so a strict decode that succeeds is strong evidence on its own.
 CANDIDATES = ("utf-8", "cp866", "cp1251")
+
+
+def system_codec() -> str:
+    """What this machine means when nothing says otherwise.
+
+    Asked for on 2026-09-06: *«нужен авто выбор для OS»*. The two lists above
+    were written for archives made in Russia — 866 and 1251 — and on a German
+    or Polish Windows the page that machine actually writes was never among the
+    readings tried at all.
+
+    Windows has an answer and it is the ANSI code page. macOS and Linux have
+    one too and it is UTF-8: their file names are bytes, but every tool that
+    writes an archive on them writes UTF-8, and `locale` on a machine with no
+    locale set says ASCII, which would be a worse guess than the truth.
+    """
+    if sys.platform != "win32":
+        return "utf-8"
+    try:
+        page = locale.getpreferredencoding(False)
+    except Exception:
+        return "cp1252"
+    return page.lower() if page else "cp1252"
+
+
+def candidates() -> Tuple[str, ...]:
+    """The readings to try, this machine's own first after UTF-8.
+
+    **First after UTF-8 rather than first outright**, because a strict UTF-8
+    decode that succeeds is evidence and a code-page decode never fails: cp1251
+    reads any bytes at all. Order settles ties, and on a tie the machine's own
+    page is the likelier answer — which is the whole of what "auto for the OS"
+    can honestly mean.
+    """
+    mine = system_codec()
+    order = ["utf-8"]
+    if mine not in order:
+        order.append(mine)
+    for codec in CANDIDATES:
+        if codec not in order:
+            order.append(codec)
+    return tuple(order)
 
 
 def plausibility(text: str) -> int:
@@ -93,9 +144,11 @@ def repaired(raw: bytes, choice: str, fallback: str) -> str:
         return _decode(raw, "cp866", fallback)
     if choice == WINDOWS:
         return _decode(raw, "cp1251", fallback)
+    if choice == SYSTEM:
+        return _decode(raw, system_codec(), fallback)
 
     best, score = fallback, plausibility(fallback)
-    for codec in CANDIDATES:
+    for codec in candidates():
         candidate = _decode(raw, codec, None)
         if candidate is None or candidate == fallback:
             continue

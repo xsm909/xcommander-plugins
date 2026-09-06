@@ -56,6 +56,7 @@ AUTO = legacynames.AUTO
 OEM = legacynames.OEM
 WINDOWS = legacynames.WINDOWS
 LITERAL = legacynames.LITERAL
+SYSTEM = legacynames.SYSTEM
 
 #: The plain tar that members are staged in while a pack is running, and the
 #: file a rewrite is assembled in. Beside the archive rather than in the system

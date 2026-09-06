@@ -38,6 +38,7 @@ import time
 import zipfile
 
 import hostfile
+import legacynames
 import tarbox
 import zipbox
 
@@ -123,6 +124,52 @@ def names():
     ascii_only = zipfile.ZipInfo("notes.txt")
     ascii_only.flag_bits = 0
     check("an ASCII name is nobody's business", zipbox.decoded_name(ascii_only), "notes.txt")
+
+    # -- and the machine gets a say -----------------------------------------
+    #
+    # Asked for on 2026-09-06: «нужен авто выбор для OS». The readings tried
+    # were a fixed three written for archives made in Russia, so a machine set
+    # to any other page never had its own among them.
+    check(
+        "this machine's page is one of the readings tried",
+        legacynames.system_codec() in legacynames.candidates(),
+        True,
+    )
+    check(
+        "and UTF-8 is still first, because a strict decode that works is proof",
+        legacynames.candidates()[0],
+        "utf-8",
+    )
+    check(
+        "the two old ones are still tried, wherever this machine is set",
+        all(codec in legacynames.candidates() for codec in ("cp866", "cp1251")),
+        True,
+    )
+    check(
+        "nothing is tried twice",
+        len(set(legacynames.candidates())),
+        len(legacynames.candidates()),
+    )
+
+    # Asked for this machine's page outright, that is what is used — the
+    # override he asked to keep, for the archive somebody else's machine wrote.
+    #
+    # Written as *the bytes read that way, and the format's own reading where
+    # they will not read that way at all*, because what this machine is set to
+    # is not the same on the three machines this has to pass on. On a UTF-8
+    # machine cp866 bytes are not valid UTF-8, and a reading that cannot be
+    # made is not a reading: the fallback stands.
+    mine = legacynames.system_codec()
+    raw = "Отчёт.txt".encode("cp866")
+    try:
+        wanted = raw.decode(mine)
+    except UnicodeDecodeError:
+        wanted = raw.decode("cp437")
+    check(
+        "asked for this machine's page, that is the one used",
+        zipbox.decoded_name(legacy("Отчёт.txt", "cp866"), zipbox.SYSTEM),
+        wanted,
+    )
 
     modern = zipfile.ZipInfo("Отчёт.txt")
     modern.flag_bits = zipbox.UTF8_FLAG
